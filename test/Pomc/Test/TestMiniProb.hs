@@ -11,7 +11,7 @@ module Pomc.Test.TestMiniProb (tests) where
 import Pomc.Test.EvalFormulas (excludeIndices)
 import Pomc.Test.TestProbTermination (checkApproxResult)
 import Pomc.Parse.Parser (checkRequestP, CheckRequest(..))
-import Pomc.Prob.ProbUtils (Prob, Solver(..), TermResult(..))
+import Pomc.Prob.ProbUtils (Prob, Solver(..), Update(..), TermResult(..))
 import Pomc.Prob.ProbModelChecker (programTermination, quantitativeModelCheckProgram)
 import Pomc.LogUtils (selectLogVerbosity) --, LogLevel(..))
 
@@ -60,10 +60,10 @@ makeParseTest progSource (name, phi, solver, expected) =
 
 basicSMTWithHintsTests :: TestTree
 basicSMTWithHintsTests = testGroup "Basic SMTWithHints Tests"
-  $ excludeIndices (basicTestCases SMTWithHints) [8]
+  $ excludeIndices (basicTestCases (SMTWithHints GS)) [8]
 
 basicOVITests :: TestTree
-basicOVITests = testGroup "Basic OVI Tests" $ basicTestCases OVIGS
+basicOVITests = testGroup "Basic OVI Tests" $ basicTestCases (OVI GS)
 
 basicTestCases :: Solver -> [TestTree]
 basicTestCases solver =

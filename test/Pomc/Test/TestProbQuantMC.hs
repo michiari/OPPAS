@@ -14,7 +14,7 @@ import Pomc.Test.TestProbTermination (checkApproxResult)
 import Pomc.Test.OPMs (stlV3Alphabet, makeInputSet)
 import Data.Maybe (fromJust, isJust)
 import Pomc.Prob.ProbModelChecker (ExplicitPopa(..), quantitativeModelCheckExplicitGen)
-import Pomc.Prob.ProbUtils (Solver(..))
+import Pomc.Prob.ProbUtils (Solver(..), Update(..))
 import Pomc.LogUtils (selectLogVerbosity, LogLevel(..))
 
 
@@ -34,7 +34,7 @@ type Prob = Rational
 tests :: TestTree
 tests = testGroup "ProbModelChecking.hs Quantitative Tests" $
   [ testGroup "ProbModelChecking.hs Quantitative Tests ExactSMTWithHints" $
-    [ nonTerminatingTests OVIGS, loopySamplingTests OVIGS
+    [ nonTerminatingTests (OVI GS), loopySamplingTests (OVI GS)
     --, symmetricRandomWalkTests ExactSMTWithHints
     ]
   ]

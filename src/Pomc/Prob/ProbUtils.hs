@@ -16,6 +16,7 @@ module Pomc.Prob.ProbUtils ( Prob
                            , Stack
                            , DeltaWrapper(..)
                            , SIdGen
+                           , Update(..)
                            , Solver(..)
                            , Comp(..)
                            , TermQuery(..)
@@ -190,24 +191,30 @@ decodeFullStack (s1, s) = (getId s1, map dec s)
   where dec Nothing = (0,0)
         dec (Just (i, s2)) = (nat i, getId s2)
 
--- Strategy to use to compute the result
--- SMTWithHints: compute a lower approximation of the solution
---               with an iterative method and use it as a hint for the SMT solver
--- OVIGS : use Value Iteration with Gauss-Seidel update for iterating fixpoint equations
--- OVINewton: use the Newton Method for iterating fixpoint equations
-data Solver = SMTWithHints | ExactSMTWithHints | OVIGS | OVINewton deriving (Eq, Show)
+
+-- Strategy to update successive iterations of fixpoint equations
+-- GS : Value Iteration with Gauss-Seidel update
+-- Newton: Newton's Method
+data Update = GS | Newton
+  deriving (Eq, Show)
+
+-- SMTWithHints: compute a lower approximation of the solution and use it as a hint for the SMT solver
+data Solver = SMTWithHints Update | ExactSMTWithHints Update | OVI Update 
+  deriving (Eq, Show)
 
 exactComputation :: Solver -> Bool 
-exactComputation ExactSMTWithHints = True 
+exactComputation (ExactSMTWithHints _) = True 
 exactComputation _ = False
 
 useZ3 :: Solver -> Bool 
-useZ3 SMTWithHints = True 
-useZ3 ExactSMTWithHints = True
+useZ3 (SMTWithHints _) = True 
+useZ3 (ExactSMTWithHints _) = True
 useZ3 _ = False
 
 useNewton :: Solver -> Bool 
-useNewton OVINewton = True 
+useNewton (SMTWithHints Newton) = True 
+useNewton (ExactSMTWithHints Newton) = True
+useNewton (OVI Newton) = True 
 useNewton _ = False 
 
 defaultTolerance :: EqMapNumbersType
@@ -216,8 +223,8 @@ defaultTolerance = 1e-7
 defaultRTolerance :: Prob
 defaultRTolerance = 1e-7
 
--- different termination queries
--- CompQuery asks whether the probability to terminate is <, <=, >, >= than the given probability depending on Comp
+-- termination query
+-- CompQuery asks whether the probability to terminate is <, <=, >, >= than the given probability
 -- ApproxQuery requires to approximate the termination probabilities of all semiconfs of the support graph
 -- ApproxTermination requires to approximate just the overall termination probability of the given popa
 data TermQuery = CompQuery Comp Prob Solver
@@ -232,7 +239,8 @@ solver (CompQuery _ _ s) = s
 solver (ApproxAllQuery s) = s
 solver (ApproxSingleQuery s) = s
 
--- different possible results of a termination query
+-- result of a termination query
+-- TermSat and TermUnsat correspond to, respectively, True and False answers to a CompQuery.
 -- ApproxAllResult represents the approximated probabilities to terminate of all the semiconfs of the popa 
 -- ApproxSingleResult represents the approximate probability to terminate of the popa 
 data TermResult = TermSat | TermUnsat | ApproxAllResult (Map (Int,Int) Prob, Map (Int,Int) Prob) | ApproxSingleResult (Prob, Prob)

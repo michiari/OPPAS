@@ -309,36 +309,34 @@ terminationQuerySCC suppGraph precFun query oldStats = do
       approxL (v, _) = approxRational (v - actualEps) actualEps
       approxU (_, v) = approxRational (v + actualEps) actualEps
       unlessAST f = if isAST then return (1,1) else f
-      readResults (ApproxAllQuery SMTWithHints) = do
+      -- results computed with Z3
+      readResults (ApproxAllQuery _) True = do
         upperProbRationalMap <- GeneralMap.fromList <$> (mapM (\(varKey, varAST) -> do
             pRational <- extractUpperProb varAST
             return (varKey, pRational)) =<< liftIO (HT.toList newMap))
         probMap <- liftIO $ GeneralMap.map (\(PopEq d) -> d) <$> MM.foldMaps newEqMap
         let lowerProbRationalMap = GeneralMap.map approxL probMap
         return  (ApproxAllResult (lowerProbRationalMap, upperProbRationalMap), mustReachPopIdxs)
-      readResults (ApproxSingleQuery SMTWithHints) = do
+      readResults (ApproxSingleQuery _) True = do
         (lb, ub) <- unlessAST $ retrieveInitialPush actualEps (eqMap globals) gn
         return (ApproxSingleResult (lb, ub), mustReachPopIdxs)
-      readResults (CompQuery comp bound SMTWithHints) = do
+      readResults (CompQuery comp bound _) True = do
         (lb, ub) <- unlessAST $ retrieveInitialPush actualEps (eqMap globals) gn
         return (toTermResult $ intervalLogic (lb,ub) comp bound, mustReachPopIdxs)
-      readResults (ApproxAllQuery ExactSMTWithHints) = readResults (ApproxAllQuery SMTWithHints)
-      readResults (ApproxSingleQuery ExactSMTWithHints) = readResults (ApproxSingleQuery SMTWithHints)
-      readResults (CompQuery comp bound ExactSMTWithHints) = readResults (CompQuery comp bound SMTWithHints)
       -- results computed with OVI
-      readResults (ApproxAllQuery _) = liftIO $ do
+      readResults (ApproxAllQuery _) False = liftIO $ do
         probMap <- GeneralMap.map (\(PopEq d) -> d) <$> MM.foldMaps newEqMap
         let upperProbRationalMap = GeneralMap.map approxU probMap
         let lowerProbRationalMap = GeneralMap.map approxL probMap
         return  (ApproxAllResult (lowerProbRationalMap, upperProbRationalMap), mustReachPopIdxs)
-      readResults (ApproxSingleQuery _) = do
+      readResults (ApproxSingleQuery _) False = do
         (lb, ub) <- unlessAST $ retrieveInitialPush actualEps (eqMap globals) gn
         return (ApproxSingleResult (lb, ub), mustReachPopIdxs)
-      readResults (CompQuery comp bound _) = do
+      readResults (CompQuery comp bound _) False = do
         (lb, ub) <- unlessAST $ retrieveInitialPush actualEps (eqMap globals) gn
         return (toTermResult $ intervalLogic (lb,ub) comp bound, mustReachPopIdxs)
 
-  readResults query
+  readResults query (useZ3 $ solver query)
 
 dfs :: (MonadZ3 z3, MonadFail z3, MonadLogger z3, Eq state, Hashable state, Show state)
     => SupportGraph state

@@ -22,7 +22,6 @@ import qualified Pomc.Potl as P
 import Pomc.MiniIR (Program(..), ExprProp(..))
 import Pomc.Parse.MiniProc
 import Pomc.ModelChecker (ExplicitOpa(..))
-import Pomc.Prob.ProbUtils (Solver(..), Comp(..), TermQuery(..))
 
 import Data.Void (Void)
 import Data.Text (Text, pack)
@@ -30,7 +29,6 @@ import qualified Data.Text as T
 import Data.Text.IO (readFile)
 import Data.Set (Set)
 import qualified Data.Set as S
-import Data.Ratio ((%))
 
 import System.FilePath (takeDirectory, (</>))
 import Text.Megaparsec
@@ -52,8 +50,7 @@ data CheckRequest =
   ProgCheckRequest  { pcreqFormulas :: [P.Formula ExprProp]
                     , pcreqMiniProc :: Program
                     } |
-  ProbTermRequest   { ptreqTermQuery :: TermQuery
-                    , ptreqMiniProb  :: Program
+  ProbTermRequest   { ptreqMiniProb  :: Program
                     } |
   ProbCheckRequest  { pcreqFormula      :: P.Formula ExprProp
                     , pcreqMiniProb     :: Program
@@ -274,29 +271,6 @@ opaSectionP = do
   _ <- symbolP ";"
   return (ExplicitOpa ([], []) opaInitials opaFinals opaDeltaPush opaDeltaShift opaDeltaPop)
 
-termQueryP :: Parser TermQuery
-termQueryP = do
-  tquery <- boundQueryP <|> (ApproxSingleQuery SMTWithHints <$ symbolP "approximate")
-  _ <- symbolP ";"
-  return tquery
-  where boundQueryP = do
-          comp <- choice [ Le <$ try (symbolP "<=")
-                         , Lt <$ try (symbolP "<")
-                         , Ge <$ try (symbolP ">=")
-                         , Gt <$ try (symbolP ">")
-                         ]
-          prob <- choice [
-            try $ do
-              num <- L.lexeme spaceP L.decimal
-              _ <- symbolP ":"
-              den <- L.lexeme spaceP L.decimal
-              return (num % den)
-            , (0%1) <$ symbolP "0"
-            , (1%1) <$ symbolP "1"
-            ]
-          return $ CompQuery comp prob SMTWithHints
-
-
 checkRequestP :: Parser CheckRequest
 checkRequestP = nonProbModeP <|> probModeP where
   nonProbModeP = do
@@ -325,11 +299,10 @@ checkRequestP = nonProbModeP <|> probModeP where
     _ <- symbolP "probabilistic query" >> symbolP ":"
     termModeP <|> mcModeP
     where termModeP = do
-            tquery <- termQueryP
+            _ <- symbolP "approximate;"
             _ <- symbolP "program" >> symbolP ":"
             prog <- programP
-            return ProbTermRequest { ptreqTermQuery = tquery
-                                   , ptreqMiniProb  = prog
+            return ProbTermRequest { ptreqMiniProb  = prog
                                    }
           mcModeP = do
             req <- ((0 :: Integer) <$ symbolP "qualitative")

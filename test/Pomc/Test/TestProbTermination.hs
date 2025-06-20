@@ -17,7 +17,7 @@ import Pomc.Prob.ProbModelChecker ( ExplicitPopa(..)
                                   , terminationApproxExplicit
                                   )
 
-import Pomc.Prob.ProbUtils (Solver(..), Stats)
+import Pomc.Prob.ProbUtils (Solver(..), Update(..), Stats)
 import Pomc.LogUtils (MonadLogger, LoggingT, selectLogVerbosity, LogLevel(..))
 import Control.Monad.IO.Class (MonadIO)
 import Data.Ratio ((%))
@@ -34,20 +34,20 @@ tests = testGroup "ProbModelChecking.hs Termination Tests" $
     ]
   , testGroup "Estimating Termination Probabilities with OVI"
     $ flip excludeIndices [2,4]
-    $ map (\(popa, expected, s) -> makeTestCase checkApproxResult popa ((s, \popa' -> terminationApproxExplicit popa' OVIGS), expected)) exactTerminationProbabilities
+    $ map (\(popa, expected, s) -> makeTestCase checkApproxResult popa ((s, \popa' -> terminationApproxExplicit popa' (OVI GS)), expected)) exactTerminationProbabilities
   , testGroup "Estimating Termination Probabilities with SMTWithHints"
     $ flip excludeIndices [2,4, 7, 8]
-    $ map (\(popa, expected, s) -> makeTestCase checkApproxResult popa ((s, \popa' -> terminationApproxExplicit popa' SMTWithHints), expected)) exactTerminationProbabilities
+    $ map (\(popa, expected, s) -> makeTestCase checkApproxResult popa ((s, \popa' -> terminationApproxExplicit popa' (SMTWithHints GS)), expected)) exactTerminationProbabilities
   , testGroup "Computing Exact Terminating Probabilities"
     $ flip excludeIndices [6, 7, 8]
-    $ map (\(popa, expected, s) -> makeTestCase checkApproxResult popa ((s, \popa' -> terminationApproxExplicit popa' ExactSMTWithHints), expected)) exactTerminationProbabilities
+    $ map (\(popa, expected, s) -> makeTestCase checkApproxResult popa ((s, \popa' -> terminationApproxExplicit popa' (ExactSMTWithHints GS)), expected)) exactTerminationProbabilities
   ]
 
 type Prob = Rational
 type TestCase m a = (String, (ExplicitPopa Word String -> m (a, Stats, String)))
 
 termQueries :: (MonadIO m, MonadFail m, MonadLogger m) => [TestCase m Bool]
-termQueries = [(s ++ show b, \popa -> f popa b ExactSMTWithHints) | (s,f) <- termFunctions, b <- termBounds]
+termQueries = [(s ++ show b, \popa -> f popa b (ExactSMTWithHints GS)) | (s,f) <- termFunctions, b <- termBounds]
   where termFunctions = [("LT ", terminationLTExplicit), ("LE ", terminationLEExplicit), ("GT ", terminationGTExplicit), ("GE ", terminationGEExplicit)]
         termBounds = [0.0, 0.5, 1.0]
 

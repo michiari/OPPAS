@@ -6,16 +6,18 @@
 -}
 
 module Pomc.Prob.ProbModelChecker ( ExplicitPopa(..)
+                                  -- APIs
+                                  , programTermination
+                                  , qualitativeModelCheckProgram
+                                  , quantitativeModelCheckProgram
+                                  -- testing APIs
                                   , terminationLTExplicit
                                   , terminationLEExplicit
                                   , terminationGTExplicit
                                   , terminationGEExplicit
                                   , terminationApproxExplicit
-                                  , programTermination
-                                  , qualitativeModelCheckProgram
                                   , qualitativeModelCheckExplicit
                                   , qualitativeModelCheckExplicitGen
-                                  , quantitativeModelCheckProgram
                                   , quantitativeModelCheckExplicit
                                   , quantitativeModelCheckExplicitGen
                                   , exportMarkovChain
@@ -147,6 +149,11 @@ terminationExplicit query popa =
     computedStats <- liftSTtoIO $ readSTRef stats
     return (res, computedStats, show sc)
 
+------------------------------------------------
+-- set of APIs for MiniProb programs --
+------------------------------------------------
+
+-- what is the probability that the input MiniProb program terminates?
 programTermination :: (MonadIO m, MonadFail m, MonadLogger m)
                    => Solver -> Program -> m (TermResult, Stats, String)
 programTermination solv prog =
@@ -458,8 +465,7 @@ quantitativeModelCheckExplicitGen solv phi popa =
   in quantitativeModelCheckExplicit solv tphi tPopa
 
 chooseLogic :: Solver -> Maybe Logic
-chooseLogic OVIGS = Just QF_LRA
-chooseLogic OVINewton = Just QF_LRA
+chooseLogic (OVI _) = Just QF_LRA
 chooseLogic _ = Just QF_NRA
 
 exportMarkovChain :: (MonadIO m, MonadFail m, MonadLogger m)

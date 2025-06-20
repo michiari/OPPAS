@@ -10,7 +10,7 @@
 module Main (main) where
 
 import Pomc.Prob.ProbModelChecker (programTermination, qualitativeModelCheckProgram, quantitativeModelCheckProgram, exportMarkovChain)
-import Pomc.Prob.ProbUtils (Solver(..), Stats(..))
+import Pomc.Prob.ProbUtils (Solver(..), Stats(..), Update(..))
 import Pomc.Parse.Parser (checkRequestP, spaceP, CheckRequest(..), preprocess)
 import Pomc.TimeUtils (timeAction, timeToString)
 import Pomc.LogUtils (LogLevel(..), selectLogVerbosity)
@@ -26,7 +26,7 @@ import Data.Text.IO (readFile)
 
 data POPACheckArgs = POPACheckArgs
   { noovi :: Bool
-  , newton :: Bool
+  , gauss :: Bool
   , verbose :: Int
   , maxDepth :: Int
   , fileName :: FilePath
@@ -35,7 +35,7 @@ data POPACheckArgs = POPACheckArgs
 popacheckArgs :: POPACheckArgs
 popacheckArgs = POPACheckArgs
   { noovi = False &= help "Use z3 instead of Optimistic Value Iteration for computing upper bounds to the Least Fixed Point solution of the equation systems for pOPA's termination probabilities"
-  , newton = False &= help "Use Newton's method instead of Gauss-Seidel Value Iteration to iterate the Least Fixed point solution of the equation systems for pOPA's termination probabilities and for quantitative model checking"
+  , gauss = False &= help "Use Gauss-Seidel Value Iteration instead of Newton's method to iterate the Least Fixed point solution of the equation systems for pOPA's termination probabilities and for quantitative model checking"
   , verbose = 0 &= help "Print more info about model checking progress. 0 = no logging (default), 1 = show info, 2 = debug mode"
   , maxDepth = 100 &= help "Max stack depth when exporting a Markov Chain representation of the input program with unfolded stack (default = 100) [test feature only]"
   , fileName = def &= args &= typFile -- &= help "Input file"
@@ -46,9 +46,12 @@ popacheckArgs = POPACheckArgs
 main :: IO ()
 main = do
   pargs <- cmdArgs popacheckArgs
-  let probSolver | noovi pargs = SMTWithHints
-                 | newton pargs = OVINewton
-                 | otherwise = OVIGS
+  let updateStrategy 
+        | gauss pargs = GS 
+        | otherwise = Newton
+      probSolver 
+        | noovi pargs = SMTWithHints updateStrategy
+        | otherwise = OVI updateStrategy
       depth = maxDepth pargs
       fname = fileName pargs
       logLevel = case verbose pargs of
@@ -63,7 +66,7 @@ main = do
             Left  errBundle -> die (errorBundlePretty errBundle)
             Right creq      -> return creq
   totalTime <- case creq of
-    ProbTermRequest _ prog -> runProbTerm logLevel probSolver prog
+    ProbTermRequest prog -> runProbTerm logLevel probSolver prog
     ProbCheckRequest phi prog False -> runQualProbCheck logLevel probSolver phi prog
     ProbCheckRequest phi prog True -> runQuantProbCheck logLevel probSolver phi prog
     ProbUnfoldRequest phi prog -> runUnfoldAndExport logLevel phi prog depth fname
