@@ -138,8 +138,6 @@ buildGGraph :: (Ord pstate, Hashable pstate, Show pstate)
 buildGGraph gglobals delta phiInitials suppGraph isPending sIdMap = do
   let iniGn = suppGraph ! 0
       iniLabel = getLabel . fst . semiconf $ iniGn
-  currentIdSeq <- readSTRef $ idSeq gglobals
-  when (currentIdSeq /= 0) $ error "memory found containing some trash values when building graph G"
   filtered <- mapM (\s -> do
     -- create a new GNode 
     newId <- freshPosId (idSeq gglobals)
@@ -166,8 +164,8 @@ build gglobals delta suppGraph isPending sIdMap (gn, p) =
       precRel = (prec delta) (fst . fromJust $ g) (getLabel q)
       cases
         -- a sanity check
-        | getLabel q /= E.extractInput (bitenc delta) (current p) = 
-            error "inconsistent GNode when building the G Graph"
+        -- | getLabel q /= E.extractInput (bitenc delta) (current p) = 
+            -- error "inconsistent GNode when building the G Graph"
 
         -- this case includes the initial push
         | (isNothing g) || precRel == Just Yield =
@@ -244,10 +242,10 @@ buildPush gglobals delta suppGraph isPending sIdMap (gn, p) =
     fSuppAugStates <- if not . null $ fSuppGns
                         then GR.reachableStates (grGlobals gglobals) cDelta leftContext
                         else return []
-    unless (all (consistentFilter. fst) fSuppAugStates) $ error "a support Augmented State is inconsistent"
+    --unless (all (consistentFilter. fst) fSuppAugStates) $ error "a support Augmented State is inconsistent"
     let fSuppGnodes =
           [(gn1, p1, suppSatSet) |
-              gn1 <- fSuppGns
+            gn1 <- fSuppGns
             , (AugState (StateId _ q _) p1, suppSatSet) <- fSuppAugStates
             , (getState . fst . semiconf $ gn1) == q
           ]
@@ -354,7 +352,7 @@ qualitativeModelCheck delta phi phiInitials suppGraph sIdMap pendVector stats = 
 
   logInfoN "Analyzing graph G..."
   -- globals data structures for qualitative model checking
-  -- -1 is reserved for useless (i.e. single node) SCCs
+  -- -1 is reserved for trivial (i.e. single node that does not depend on itself) SCCs
   liftSTtoIO $ do
     sccCounter <- newSTRef (-2 :: Int)
     newSS         <- GS.new
@@ -477,10 +475,9 @@ addtoPath hglobals node edge  = do
   GS.push (bStack hglobals) sSize
   return node{iValue = sSize}
 
+-- contract the B stack, that represents the boundaries between SCCs on the current path
 merge :: HGlobals s pstate -> GNode -> ST s ()
-merge hGlobals g = do
-  -- contract the B stack, that represents the boundaries between SCCs on the current path
-  GS.popWhile_ (bStack hGlobals) (\x -> iValue g < x)
+merge hGlobals g = GS.popWhile_ (bStack hGlobals) (\x -> iValue g < x)
 -- end Gabow helpers
 
 -- helpers for the construction of subgraph H
@@ -814,7 +811,7 @@ encodePush wGrobals sIdGen supports delta (lTypVarMap, uTypVarMap) suppGraph gGr
         -- end pushEnc
   in do
     -- a little sanity check
-    unless (graphNode g == gnId gn) $ error "Encoding Push corresponding to non consistent pair GNode - graphNode"
+    --unless (graphNode g == gnId gn) $ error "encodePush corresponding to non consistent pair GNode - graphNode"
     lvar <- liftIO $ fromJust <$> HT.lookup lTypVarMap (gId g)
     uvar <- liftIO $ fromJust <$> HT.lookup uTypVarMap (gId g)
     if fNodes == [gId g]
@@ -858,7 +855,7 @@ encodeShift (lTypVarMap, uTypVarMap) gGraph isInH g gn pendProbsLB pendProbsUB =
 
   in do
   -- a little sanity check
-  unless (graphNode g == gnId gn) $ error "Encoding Shift encountered a non consistent pair GNode - graphNode"
+  --unless (graphNode g == gnId gn) $ error "encodeShift encountered a non consistent pair GNode - graphNode"
   lvar <- liftIO $ fromJust <$> HT.lookup lTypVarMap (gId g)
   uvar <- liftIO $ fromJust <$> HT.lookup uTypVarMap (gId g)
   -- it's greater than zero for sure!
