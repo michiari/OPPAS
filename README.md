@@ -76,4 +76,4 @@ Reference for the SMT-based model checker (`pomc --smt`):
 
 Reference for the probabilistic model checker (`popacheck`):
 
-3. Pontiggia, F., Bartocci, E., & Chiari, M. (2025). POPACheck: a Model Checker for probabilistic Pushdown Automata. CAV 2025. LNCS, to appear. [arXiv:2502.03956](https://doi.org/10.48550/arXiv.2502.03956)
+3. Pontiggia, F., Bartocci, E., & Chiari, M. (2025). POPACheck: A Model Checker for Probabilistic Pushdown Automata. CAV 2025. LNCS, to appear. [arXiv:2502.03956](https://doi.org/10.48550/arXiv.2502.03956)
