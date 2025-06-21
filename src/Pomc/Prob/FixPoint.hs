@@ -121,7 +121,7 @@ jacobiTimesX leqSys v =
   let jtxMonomial dPdx = Lin coeff
         where coeff = evalMonomial v dPdx
       jtxPush (p, Left k1, Left k2)
-        | k1 == k2 = [jtxMonomial (Lin ((2 * p)) k1) k1]
+        | k1 == k2 = [jtxMonomial (Lin (2 * p) k1) k1]
         | otherwise = [jtxMonomial (Lin p k2) k1, jtxMonomial (Lin p k1) k2]
       jtxPush (p, Left k1, Right val) = [jtxMonomial (Const (p * val)) k1]
       jtxPush (p, Right val, Left k1)  = [jtxMonomial (Const (p * val)) k1]
@@ -242,7 +242,7 @@ approxFixpNewtonWithHint augEqMap f eps viEps maxIters maxItersVI hint = do
   let (checkHint, evalHint) = evalEqSys leqMap (checkIterNewton viEps) hint
       jMatrix = pminusXjacobi leqMap
       approxVec = approxFixpFromNewton jMatrix leqMap eps viEps maxIters maxItersVI evalHint
-  if checkHint -- the Newton method cannot deal with hints already at the fixpoint
+  if checkHint -- Newton's method cannot deal with hints already at the fixpoint
     then return evalHint
     else return approxVec
 
@@ -280,8 +280,8 @@ approxFixpWithHint augEqMap f eps maxIters hint = do
   leqMap <- toLiveEqMapWith augEqMap f
   return $ approxFixpFrom leqMap eps maxIters hint
 
--- determine variables for which zero is a fixpoint by iterating a few times the system
--- Note that we are not allowed to use the Newton method here, as it is not guaranteed to converge for non clean systems 
+-- determine variables for which zero is a fixpoint by iterating the system
+-- Note that we are not allowed to use Newton's method here, as it is not guaranteed to converge for non clean systems 
 -- (cit. Computing the Least Fixed Point of Positive Polynomial Systems)
 preprocessZeroApproxFixp :: (MonadIO m, MonadLogger m, Ord n, Fractional n, Show n, Show k)
                       => AugEqMap k -> (k -> n) -> n -> Int -> m (ProbVec n)
@@ -326,7 +326,7 @@ preprocessApproxFixp augEqMap@(_, lVarsRef) f = do
             PushLEq terms ->  foldl' (solvePush killedVars)  (Just 0) terms
             ShiftLEq terms -> foldl' (solveShift killedVars) (Just 0) terms
 
-          go (False, updatedVars, liveVars)  = (M.toList updatedVars, map fst liveVars)
+          go (False, updatedVars, _)  = M.toList updatedVars
           go (True, updatedVars, liveVars) = go $ foldl' (\(recurse, upVars, lVars) (varKey, eq) ->
             case solveEq updatedVars eq of
               Nothing -> (recurse, upVars, (varKey, eq):lVars)
@@ -334,7 +334,7 @@ preprocessApproxFixp augEqMap@(_, lVarsRef) f = do
             ) (False, updatedVars, []) liveVars
 
           vars = zip (Set.toList lVars) (V.toList leqMap)
-          (upVars, _) = go (True, M.empty, vars)
+          upVars = go (True, M.empty, vars)
       return upVars
 
 defaultEps :: EqMapNumbersType
