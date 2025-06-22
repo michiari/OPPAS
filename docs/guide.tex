@@ -24,7 +24,7 @@
 
 \title{OPPAS User's Guide}
 \author{Michele Chiari, Francesco Pontiggia}
-\date{17.06.2025}
+\date{21.06.2025}
 
 \begin{document}
 
@@ -40,11 +40,11 @@ POPACheck is an extension of POMC towards probabilistic recursive programs, mode
 
 It supports model checking of Linear Temporal Logic (LTL), and a fragment of POTL, called POTLf$\chain$.
 Given a pOPA and a formula in either LTL or POTLf$\chain$, POPACheck can solve both qualitative and quantitative model check queries.
-Additionally, it can compute (approximately) the termination probability of the pOPA.
+Additionally, it can compute (approximately) the pOPA's termination probability.
 Computing termination probabilities is a central problem in probabilistic pushdown model checking,
  preliminary to any kind of analysis, and amounts at computing the Least Fixed Point solution of a Positive Polynomial System (PPS).
 
-This document is a reference guide to their input and output formats,
+This document is a reference guide to POMC and POPACheck input and output formats,
 and also describes at a high level its architecture and source code.
 \end{abstract}
 
@@ -107,13 +107,13 @@ Roughly speaking, POPACheck:
 \begin{itemize}
     \item takes as input a formula and a program in a custom Domain-Specific Language called MiniProb.
     \item translates the program into a (explicitly represented) pOPA.
-    \item uses POMC modules to translate the formula into an OPBA.
-    \item model-checks the pOPA against the OPBA via automata-based model checking, i.e., via a cross-product.
+    \item uses POMC modules to translate the formula into an $\omega$OPBA.
+    \item model-checks the pOPA against the $\omega$OPBA via automata-based model checking, i.e., via a cross-product.
 \end{itemize}
 Involved technicalities arise due to the facts that:
 \begin{itemize}
     \item pOPAs are equipped with an unbounded stack, hence they are infinite-state models.
-    \item we do not perform determinization of the specification OPBA, as canonical in probabilistic model checking.
+    \item we do not perform determinization of the specification $\omega$OPBA, as canonical in probabilistic model checking.
 \end{itemize}
 We'll skip their treatment here, and refer to \cite{abs-2404-03515}. We just mention that pOPA infinite runs can be represented (or `summarized') by a finite-state Markov Chain called \emph{support chain}. The support chain of a pOPA can be computed by solving (nonlinear) Positive Polynomial Systems (PPSs) of equations for their Least Fixed Point. Solutions to these systems are called \emph{termination probabilities}. Due to their nonlinearity, they cannot be computed exactly, i.e. solutions may be irrational, and not even expressible by radicals~\cite{EtessamiY09}. Our tool deals with this issue by computing sound lower and upper rational bounds to termination probabilities. While it computes lower bound always via numerical methods, it offers two approaches for upper bounds: one is purely numerical, and it is called Optimistic Value Iteration (OVI); the other one relies on the SMT solver Z3~\cite{z3}. OVI has been introduced originally by Winkler and Katoen~\cite{WinklerK23a} in the tool Pray.
 
@@ -147,7 +147,7 @@ sudo apt install libz3-dev libgsl0-dev liblapack-dev libatlas-base-dev
 Haskell bindings to Z3 are hosted on the GitHub repository \href{https://github.com/michiari/haskell-z3}{haskell-z3}.
 
 The Z3 library requires special care, because some features used by POPACheck are buggy in older versions.
-The current version of the tool (3.0.0) has been fully tested with Z3 versions 4.11.2 and 4.14.1 on Ubuntu 24.10 and 25.04.
+The current version of the tool (3.0.0) has been fully tested with Z3 versions 4.11.2, 4.13.4 and 4.14.1 on Ubuntu 24.10 and 25.04.
 We experienced some issues on with other versions of Z3 (e.g., 4.8.12), where Z3 sometimes returns error \verb|Z3: invalid argument|.
 Please report to the OPPAS development team in case you experience issues.
 
@@ -243,7 +243,7 @@ $ stack exec popacheck -- file.pomc {args}
 POPACheck stack commands take a few arguments:
 \begin{itemize}
     \item \verb|--noovi| [default: False]. When set, POPACheck uses Z3 instead of OVI for computing upper bounds to termination probabilities. As the experimental evaluation of \cite{POPACheck} suggests, this leads almost always to timeouts, and will probably will be removed in then near future.
-    \item \verb|--newton| [default: False]. When set, POPACheck uses Newton's iterative method for computing lower bounds to termination probabilities, and to fractions in quantitative model checking. The default method is Value Iteration with Gauss-Seidel updates. We refer to PreMo publications \cite{WojtczakE07,Wojtczak09} for a detailed description of these two numerical methods. In our experiments, the Newton method tends to be slightly faster than Gauss-Seidel Value Iteration, hence we encourage users to set this flag.
+    \item \verb|--gauss| [default: False]. When set, POPACheck uses Value Iteration with Gauss-Seidel update for computing lower bounds to termination probabilities, and to fractions in quantitative model checking. The default method is Newton's iterative method. We refer to PreMo publications \cite{WojtczakE07,Wojtczak09} for a detailed description of these two numerical methods. In our experiments, Newton's method tends to be slightly faster than Gauss-Seidel Value Iteration.
     \item $\texttt{-verbose}$ [default: 0]. Logging level. 0 = no logging, 1 = show info, 2 = debug mode.
 \end{itemize}
 
@@ -655,6 +655,79 @@ Random assignments of the form $x = e_1 \{ e_2 / e_3 \} e_4$ mean that $x$ is as
 the value of $e_1$ with probability $e_2 / e_3$, and $e_4$ with probability $1 - e_2 / e_3$.
 Finally, functions can \texttt{query} the distribution on value-result parameters of another function, and condition on a Boolean expression with \texttt{observe}.
 
+\subsection{Comparison with WebPPL}
+For comparison, we show informally how constructs of a general purpose probabilistic programming language, WebPPL\footnote{Docs are available at \url{https://docs.webppl.org/en/master/sample.html}.},
+map to MiniProb operators.
+\subsubsection{Sampling}
+Sampling from primitive distributions is implicit in MiniProb, hence WebPPL
+\begin{verbatim}
+  var a = sample(dist);
+\end{verbatim}
+translates to MiniProb directly to 
+\begin{verbatim}
+  s16 a;
+  a = dist;
+\end{verbatim}
+where we have assumed that variable \texttt{a} is a 16-bit signed integer. 
+In MiniProb, all variables  must be declared before usage.
+Sampling from the distribution obtained from marginal inference directly is not possible in MiniProb, we show later a workaround.
+
+\subsubsection{Primitive Distributions}
+All WebPPL primitive distributions that are supported by MiniProb are listed in the following table. Those not listed here
+are not supported. Note that MiniProb supports only discrete probability distributions, and rational probabilities.
+\begin{table}[!ht]
+\centering
+\begin{tabular}{| l | l | l | }
+\hline
+ Distribution & WebPPL & MiniProb \\
+\hline
+\hline
+Bernoulli & \texttt{Bernoulli(\{p:e\})} & \texttt{Bernoulli(e1,e2)} \emph{with e = e1/e2} \\
+Categorical & \texttt{Categorical(\{ps:...,vs:...\})} & vs[0]\texttt{\{}ps[0]\texttt{\}}vs[1]\texttt{...\{}ps[n-2]\texttt{\}}vs[n-1]\\
+Coin flip & \texttt{flip([p])} & \texttt{1\{p\}0} \\
+Delta & \texttt{Delta({v:...})} & \texttt{v} \\
+Discrete & \texttt{Discrete(\{ps:...\})} & 0\texttt{\{}ps[0]\texttt{\}}1\texttt{\{}ps[1]\texttt{\}...\{}ps[n-2]\texttt{\}}n-1\\
+Integer Uniform & \texttt{RandomInteger({n:...})} & \texttt{Uniform(0,n-1)} \\
+\hline
+\end{tabular}
+\caption{Available primitive distributions in MiniProb.
+         In WebPPL categorical or discrete distributions, \texttt{ps} are (unnormalized) probabilities, and \texttt{vs} are values for categorical ones. However, probabilities must be normalized in the MiniProb construct.}
+\label{tab:distributions}
+\end{table}
+
+\subsubsection{Marginal Inference}
+(Cit.) Marginal inference (or just inference) is the process of reifying the distribution on return values implicitly represented by a stochastic computation.
+
+In WebPPL, it is expressed as, for example,
+\begin{verbatim}
+  var a = sample (Infer(function() {
+    return flip() + flip();
+  }));
+\end{verbatim}
+In MiniProb, it corresponds to 
+\begin{verbatim}
+
+  main() {
+    u2 a;
+    query function(a);
+  }
+
+  function (u2 &res) {
+    bool b,c;
+    b = 1{1/2}0;
+    c = 1{1/2}0;
+    res = b + c;
+  }
+\end{verbatim}
+
+In a nutshell, \texttt{query ..} corresponds to \texttt{Infer(..)}. In MiniProb procedures do not 
+have a return statement; however it is possible to bind a variable \texttt{a} to a sample from the the queried distribution
+by passing \texttt{a} to a parameter by value-result (i.e., with \&) of the queried function, 
+and then assigning a sample from the distribution to the parameter as last statement of the queried function.
+
+\subsubsection{Conditioning}
+The only conditioning construct in MiniProb is \texttt{observe(c)}, corresponding to \texttt{condition(bool)} in WebPPL.
+
 \subsection{Model Check Queries}
 \label{sec:queries}
 A model check query must be put at the beginning of a \verb|.pomc| file, before the program. It follows the syntax: 
@@ -687,10 +760,10 @@ which means that \emph{always} (\texttt{G)}, \emph{if} the program is in a state
 \centering
 \begin{tabular}{| l | l | l |}
 \hline
- query & explanation & Formula? \\
+ Query & Meaning & Formula? \\
 \hline
 \hline
-$\texttt{approximate}$ & what is the termination probability of the program? & No \\ 
+$\texttt{approximate}$ & what is the program's termination probability? & No \\ 
 $\texttt{qualitative}$ & Does the program satisfy $f$ almost surely? & Yes \\ 
 $\texttt{quantitative}$ & What is the probability that the program satisfies $f$? & Yes \\ 
 \hline
@@ -706,7 +779,7 @@ $\texttt{quantitative}$ & What is the probability that the program satisfies $f$
 Group & POTL (or LTL) Operator & POPACheck Operator & Notation & Associativity \\
 \hline
 \hline
-\multirow{15}{*}{\rotatebox[origin=c]{90}{Unary}}
+\multirow{14}{*}{\rotatebox[origin=c]{90}{Unary}}
 & $\neg$ & \verb!~!, \texttt{Not} & Prefix & -- \\
 & $\ldnext$ & \texttt{PNd}           & Prefix & -- \\
 & $\lunext$ & \texttt{PNu}           & Prefix & -- \\
@@ -722,10 +795,10 @@ Group & POTL (or LTL) Operator & POPACheck Operator & Notation & Associativity \
 & \st{$\lhuback$} & \st{\texttt{HBu}}          & \st{Prefix} & -- \\
 & $\lleven \,$ (LTL)& \texttt{F}, \texttt{Eventually}  & Prefix & -- \\
 & $\lnext \,$ (LTL)& \texttt{N} & Prefix & -- \\
-& $\mathcal{U} \,$ (LTL)& \texttt{U} & Infix & Right \\
 & $\llglob \, $ (LTL)& \texttt{G}, \texttt{Always} & Prefix & -- \\
 \hline
-\multirow{8}{*}{\rotatebox[origin=c]{90}{POTL Binary}}
+\multirow{9}{*}{\rotatebox[origin=c]{90}{POTL (or LTL) Binary}}
+& $\mathcal{U} \,$ (LTL)& \texttt{U} & Infix & Right \\
 & $\lcduntil{}{}$ & \texttt{Ud}            & Infix  & Right \\
 & $\lcuuntil{}{}$ & \texttt{Uu}            & Infix  & Right \\
 & \st{$\lcdsince{}{}$} & \st{\texttt{Sd}}            & \st{Infix}  & \st{Right} \\
@@ -754,7 +827,7 @@ same group have the same precedence. Note that operators are case sensitive. \te
 \label{sec:output}
 The output of running a query is quite verbose at the moment. For example: 
 \begin{verbatim}
-$ stack exec -- popacheck prob/established/quantitative/schelling/Q03.pomc --newton
+$ stack exec -- popacheck prob/established/quantitative/schelling/Q03.pomc
 \end{verbatim}
 prints 
 \begin{verbatim}
@@ -1069,12 +1142,12 @@ We describe the contents of each file below.
 
 The source code of POPACheck is contained in directory \texttt{src/Pomc/}.
 \begin{description}
-\item[FixPoint.hs] contains the data structures to represent sparse PPSs, and vectors of solutions (termination probabilities). Given a PPS, it keeps track of those equations that are not solved, and allows to obtain a lower bound to their Least Fixed Point solution via either the Gauss-Seidel method or the Newton's method.
+\item[FixPoint.hs] contains the data structures to represent sparse PPSs, and vectors of solutions (termination probabilities). Given a PPS, it keeps track of those equations that are not solved, and allows to obtain a lower bound to their Least Fixed Point solution via either the Gauss-Seidel method or Newton's method.
 \item[GGraph.hs]  contains the implementation of main qualitative and quantitative model checking routines. It also contains some procedures for building the cross-product between the formula's automaton and the support chain of the pOPA (what is called graph $G$ in \cite{abs-2404-03515}).
-\item[GReach.hs] contains functions for exploring edges in graph $G$ that underpin support edges in the summary chain of the pOPA. For qualitative model checking, it offers a simple reachability algorithm for building these edges. For quantitative model checking, it offers a SCC-based algorithm for computing both lower and upper bounds to the fraction associated with each edge via OVI. This amounts at solving PPSs strictly resembling those for termination probabilities.
+\item[GReach.hs] contains functions for exploring edges in graph $G$ that underpin support edges in the support chain of the pOPA. For qualitative model checking, it offers a simple reachability algorithm for building these edges. For quantitative model checking, it offers a SCC-based algorithm for computing both lower and upper bounds to the fraction associated with each edge via OVI. This amounts at solving PPSs strictly resembling those for termination probabilities.
 \item[MiniProb.hs] contains the implementation of the MiniProb programming language.
 \item[OVI.hs] contains our implementation of Optimistic Value Iteration (OVI) for computing upper bounds to the Least Fixed Point solution of PPSs.
-\item[ProbEncoding.hs] contains routines for generating a Bitvector encoding of formulae satisfied in a summary edge in the cross-product graph.
+\item[ProbEncoding.hs] contains routines for generating a Bitvector encoding of formulae satisfied in a support edge in the cross-product graph.
 \item[ProbModelChecking.hs] exposes all our probabilistic model checking APIs.
 \item[ProbUtils.hs] contains various utility functions.
 \item[SupportGraph.hs] contains a function for building the support graph of an input pOPA, an intermediate formalism for the computation of the support chain.
