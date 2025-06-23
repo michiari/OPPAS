@@ -67,10 +67,6 @@ data ExplicitPopa s a = ExplicitPopa
   , epopaDeltaPop    :: [(s, s, RichDistr s (Set (Prop a)))] -- pop transition prob. distribution
   } deriving (Show)
 
-------------------------------------------------
--- set of APIs for explicitly presented POPAs --
-------------------------------------------------
-
 -- TERMINATION
 -- is the probability to terminate respectively <, <=, >=, > than the given probability?
 -- (the return String is a debugging message for developing purposes)
@@ -95,7 +91,6 @@ terminationApproxExplicit :: (MonadIO m, MonadFail m, MonadLogger m, Ord s, Hash
                           => ExplicitPopa s a -> Solver -> m ((Prob, Prob), Stats, String)
 terminationApproxExplicit popa solv = (\(ApproxSingleResult res, s, str) -> (res, s, str)) <$> terminationExplicit (ApproxSingleQuery solv) popa
 
--- handling the termination query
 terminationExplicit :: (MonadIO m, MonadFail m, MonadLogger m, Ord s, Hashable s, Show s, Ord a)
                     => TermQuery
                     -> ExplicitPopa s a
@@ -149,10 +144,6 @@ terminationExplicit query popa =
     computedStats <- liftSTtoIO $ readSTRef stats
     return (res, computedStats, show sc)
 
-------------------------------------------------
--- set of APIs for MiniProb programs --
-------------------------------------------------
-
 -- what is the probability that the input MiniProb program terminates?
 programTermination :: (MonadIO m, MonadFail m, MonadLogger m)
                    => Solver -> Program -> m (TermResult, Stats, String)
@@ -188,7 +179,7 @@ programTermination solv prog =
 -- is the probability that the POPA satisfies phi equal to 1?
 qualitativeModelCheck :: (MonadIO m, MonadFail m, MonadLogger m, Ord s, Hashable s, Show s)
                       => Solver
-                      -> Formula APType -- input formula to check
+                      -> Formula APType -- input formula phi to check
                       -> Alphabet APType -- structural OP alphabet
                       -> (E.BitEncoding -> (s, Label)) -- POPA initial states
                       -> (E.BitEncoding -> s -> RichDistr s Label) -- POPA Delta Push
@@ -336,7 +327,7 @@ qualitativeModelCheckExplicitGen solv phi popa =
 -- what is the probability that the POPA satisfies phi?
 quantitativeModelCheck :: (MonadIO m, MonadFail m, MonadLogger m, Ord s, Hashable s, Show s)
                        => Solver
-                       -> Formula APType -- input formula to check
+                       -> Formula APType -- input formula phi
                        -> Alphabet APType -- structural OP alphabet
                        -> (E.BitEncoding -> (s, Label)) -- POPA initial states
                        -> (E.BitEncoding -> s -> RichDistr s Label) -- POPA Delta Push
@@ -468,6 +459,7 @@ chooseLogic :: Solver -> Maybe Logic
 chooseLogic (OVI _) = Just QF_LRA
 chooseLogic _ = Just QF_NRA
 
+-- export a Markov Chain representation of the pOPA with unfolded stack up to depth = bound
 exportMarkovChain :: (MonadIO m, MonadFail m, MonadLogger m)
             => Formula ExprProp -- phi: input formula to keep track of symbols
             -> Program -- input program
@@ -496,4 +488,3 @@ exportMarkovChain phi prog depth transFile labFile =
   in do
     logInfoN $ "Max depth: " ++ show depth
     showFlatModel wrapper initial (decodeAP pconv) depth transFile labFile
-
