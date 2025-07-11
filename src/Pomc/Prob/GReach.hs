@@ -75,7 +75,6 @@ import Data.IORef (IORef, modifyIORef', readIORef, modifyIORef', newIORef)
 import Data.Ratio (approxRational, (%))
 import Control.Applicative ((<|>))
 
-
 -- a basic open-addressing hashtable using linear probing
 -- s = thread state, k = key, v = value.
 type HashTable s k v = BH.HashTable s k v
@@ -598,17 +597,14 @@ encodePush globals sIdGen delta supports q g qState semiconfId_ rightCnxts sccMe
             , not $ IntSet.null toEncodeRCs
           ]
         toEncode = suppVarKeystoEncode ++ pushVarKeystoEncode
-        createTerm suppRC =
-          let term = [(prob_, (pushId, pushRC), (suppId, suppRC)) |
-                        (_, suppSId, suppId, _, suppRCs) <- suppInfo
-                      , IntSet.member suppRC suppRCs
-                      ,  (_, pushId, prob_, _, pushRCs) <- pushInfo
-                      , pushRC <- IntSet.toList pushRCs
-                      , pushRC == suppSId
-                    ]
-            in if null term
-              then PopEq (0,0)
-              else PushEq term
+        createTerm suppRC = PushEq 
+          [(prob_, (pushId, pushRC), (suppId, suppRC)) |
+              (_, suppSId, suppId, _, suppRCs) <- suppInfo
+            , IntSet.member suppRC suppRCs
+            ,  (_, pushId, prob_, _, pushRCs) <- pushInfo
+            , pushRC <- IntSet.toList pushRCs
+            , pushRC == suppSId
+          ]
         terms = IntMap.fromSet createTerm rightCnxts
 
     addFixpEqs (eqMap globals) semiconfId_ terms
@@ -687,12 +683,14 @@ solveSCCQuery sccMembers globals useNewton = do
   solvedLVars <- preprocessApproxFixp eqs fst
   solvedUvars <- preprocessApproxFixp eqs snd
   let zipSolved = zip solvedLVars solvedUvars
-  forM_ zipSolved $ \((k1, l), (_, u)) -> addFixpEq eqs k1 (PopEq (l,u))
+      updatEqMap ((k1, _), (_, 0)) = deleteFixpEq eqs k1
+      updatEqMap ((k1, l), (_, u)) = addFixpEq eqs k1 (PopEq (l,u))
+  forM_ zipSolved updatEqMap
 
   prepApprox <- preprocessZeroApproxFixp eqs fst iterEps (sccLen + 1)
   varKeys <- liveVariables eqs
   let (zeroVars, unsolvedVars) = V.partition ((== 0) . snd) (V.zip varKeys prepApprox)
-  forM_ zeroVars $ \(k, v) -> addFixpEq eqs k (PopEq (v, v))
+  forM_ zeroVars $ \(k, _) -> deleteFixpEq eqs k
 
   liftSTtoIO $ modifySTRef' (stats globals) $ 
     \s@Stats{sccCountQuant = acc1, largestSCCSemiconfsCountQuant = acc} 

@@ -111,8 +111,8 @@ lookupValue mmref idx mapIdx = do
     then Map.lookup mapIdx <$> MV.read mm idx
     else return Nothing
 
-delete :: IORef (IOMapMap v) -> (Int, Int) -> IO ()
-delete mmref (idx, mapIdx) = do
+delete :: IORef (IOMapMap v) -> Int -> Int -> IO ()
+delete mmref idx mapIdx = do
   mm <- readIORef mmref
   when (idx < MV.length mm) $ MV.unsafeModify mm (Map.delete mapIdx) idx
 

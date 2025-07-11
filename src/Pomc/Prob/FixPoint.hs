@@ -23,6 +23,7 @@ module Pomc.Prob.FixPoint ( VarKey
                           , jacobiTimesX
                           , pminusXjacobi
                           , addFixpEq
+                          , deleteFixpEq
                           , addFixpEqs
                           , toLiveEqMapWith
                           , evalEqSys
@@ -69,6 +70,7 @@ import qualified Data.IntMap as IntMap
 
 import qualified Numeric.LinearAlgebra as LA
 import qualified Numeric.LinearAlgebra.Data as LAD
+import Control.Applicative ((<|>))
 
 type VarKey = (Int, Int)
 data FixpEq n = PushEq [(Prob, VarKey, VarKey)]
@@ -163,6 +165,11 @@ addFixpEq (eqMap, lEqs) varKey eq = liftIO $ do
   uncurry (MM.insert eqMap) varKey eq
   modifyIORef' lEqs (Set.insert varKey)
 
+deleteFixpEq :: MonadIO m => AugEqMap n -> VarKey -> m ()
+deleteFixpEq (eqMap, lEqs) varKey = liftIO $ do
+  uncurry (MM.delete eqMap) varKey
+  modifyIORef' lEqs (Set.delete varKey)
+
 addFixpEqs :: (MonadIO m) => AugEqMap n -> Int -> IntMap (FixpEq n) -> m ()
 addFixpEqs  (eqMap, lEqs) semiconfId_ eqs = liftIO $ do
   MM.insertMap eqMap semiconfId_ eqs
@@ -175,7 +182,9 @@ addFixpEqs  (eqMap, lEqs) semiconfId_ eqs = liftIO $ do
 constructEitherWith :: (MonadIO m, Fractional k, Show n) => AugEqMap n -> VarKey -> Set VarKey -> (n -> k) -> m (Either Int k)
 constructEitherWith (eqMap, _) k lVars f
   | (Just idx) <- Set.lookupIndex k lVars = return (Left idx)
-  | otherwise = liftIO $ Right . (\(PopEq n) -> f n) . fromJust <$> uncurry (MM.lookupValue eqMap) k
+  | otherwise = liftIO $ do
+    maybeVal <- uncurry (MM.lookupValue eqMap) k
+    return . Right . fromJust $ fmap (\(PopEq n) -> f n) maybeVal <|> Just 0
 
 toLiveEqMapWith :: (MonadIO m, Fractional k, Show n) => AugEqMap n -> (n -> k) -> m (LEqSys k)
 toLiveEqMapWith (eqMap, lEqs) f = liftIO $ do
