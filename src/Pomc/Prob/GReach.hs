@@ -529,7 +529,7 @@ encode (QuantVariable (q,g) id_ popContexts) globals sIdGen delta supports sccMe
                 (\(unwrapped, e) -> do 
                   p <- stToIO $ wrapState sIdGen unwrapped
                   return (getId p, PopEq (fromRational e, fromRational e))
-                ) $ (deltaPop delta) qState gState
+                ) $ filter ((> 0) . snd) ((deltaPop delta) qState gState)
               addFixpEqs (eqMap globals) id_ (IntMap.fromList distr)
               liftSTtoIO $ modifySTRef' (stats globals) $ 
                 \s@Stats{equationsCountQuant = acc} -> s{equationsCountQuant = acc + length distr}
@@ -561,7 +561,7 @@ encodePush globals sIdGen delta supports q g qState semiconfId_ rightCnxts sccMe
       suppEndsIds = IntSet.fromList . map decodeStateId $ suppEnds
 
   in do
-    pushInfo <- forM ((deltaPush delta) qState) $ \(unwrapped, prob_) -> do
+    pushInfo <- forM (filter ((> 0) . snd) ((deltaPush delta) qState)) $ \(unwrapped, prob_) -> do
       p <- stToIO (wrapState sIdGen unwrapped)
       let decoded = (decodeStateId p, c, d)
       id_ <- fromJust <$> HT.lookup (graphMap globals) decoded
@@ -636,7 +636,7 @@ encodeShift globals sIdGen delta supports _ g qState semiconfId_ rightCnxts sccM
   let qProps = getStateProps (bitenc delta) qState
       newG = Just (qProps, snd . fromJust $ g)
   in do
-    shiftInfo <- forM ((deltaShift delta) qState) $ \(unwrapped, prob_) -> do
+    shiftInfo <- forM (filter ((> 0) . snd) ((deltaShift delta) qState)) $ \(unwrapped, prob_) -> do
       p <- stToIO (wrapState sIdGen unwrapped)
       let dest = (p, Just (qProps, snd . fromJust $ g))
           decoded = decode dest
