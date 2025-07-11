@@ -318,6 +318,8 @@ preprocessApproxFixp augEqMap@(_, lVarsRef) f = do
           solvePush killedVars (Just acc) (p, Left k, Right v1) = solvePush killedVars (Just acc) (p, Right v1, Left k)
           solvePush killedVars (Just acc) (p, Left idx1, Left idx2)
             | (Just v1) <- M.lookup k1 killedVars, (Just v2) <- M.lookup k2 killedVars = Just $ acc + p * v1 * v2
+            | (Just 0) <- M.lookup k1 killedVars = Just acc
+            | (Just 0) <- M.lookup k2 killedVars = Just acc
             | otherwise = Nothing
               where k1 = Set.elemAt idx1 lVars
                     k2 = Set.elemAt idx2 lVars
