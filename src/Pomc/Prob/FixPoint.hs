@@ -172,12 +172,12 @@ addFixpEqs  (eqMap, lEqs) semiconfId_ eqs = liftIO $ do
   modifyIORef' lEqs (Set.union . Set.fromList . map (semiconfId_, ) . IntMap.keys $ liveEqs)
   modifyIORef' lEqs (\s -> Set.difference s (Set.fromList . map (semiconfId_, ) . IntMap.keys $ popEqs))
 
-constructEitherWith :: (MonadIO m, Fractional k) => AugEqMap n -> VarKey -> Set VarKey -> (n -> k) -> m (Either Int k)
+constructEitherWith :: (MonadIO m, Fractional k, Show n) => AugEqMap n -> VarKey -> Set VarKey -> (n -> k) -> m (Either Int k)
 constructEitherWith (eqMap, _) k lVars f
   | (Just idx) <- Set.lookupIndex k lVars = return (Left idx)
   | otherwise = liftIO $ Right . (\(PopEq n) -> f n) . fromJust <$> uncurry (MM.lookupValue eqMap) k
 
-toLiveEqMapWith :: (MonadIO m, Fractional k) => AugEqMap n -> (n -> k) -> m (LEqSys k)
+toLiveEqMapWith :: (MonadIO m, Fractional k, Show n) => AugEqMap n -> (n -> k) -> m (LEqSys k)
 toLiveEqMapWith (eqMap, lEqs) f = liftIO $ do
   lVars <- readIORef lEqs
   let createLivePush (p, k1, k2) = do
@@ -193,7 +193,7 @@ toLiveEqMapWith (eqMap, lEqs) f = liftIO $ do
           PushEq terms -> PushLEq <$> mapM createLivePush terms
           ShiftEq terms -> ShiftLEq <$> mapM createLiveShift terms
           _ -> error "A supposed live variable is actually dead"
-  V.mapM createEq (V.fromList $ Set.toList lVars)
+  V.mapM createEq (V.fromList $ Set.elems lVars)
 
 evalEqSysNewton :: SparseMatrix Double -> LEqSys Double
   -> (Double -> Double -> Bool) -> ProbVec Double -> (Bool, ProbVec Double)
@@ -206,23 +206,23 @@ evalEqSysNewton jMatrix leqMap checkRes src =
       rhs = V.zipWith computEq src leqMap -- x - P(x) (right-hand-side)
       jacobiEval = evalSparseMatrix jMatrix src -- J(P(x) - x) (matrix of coefficients in sparse form)
       delta = V.fromList . LAD.toList
-        . LA.cgSolve False (LAD.mkSparse jacobiEval) 
-        . LAD.vector . V.toList 
+        . LA.cgSolve False (LAD.mkSparse jacobiEval)
+        . LAD.vector . V.toList
         $ rhs -- delta = x(k+1) - src
-        
+
       checkNaN = isNaN $ delta V.! 0 -- either all NaN or none
 
       dest = V.zipWith (+) src delta
       (checkDest, evalDest) = evalEqSys leqMap checkRes dest
 
-      msg = "NaN result." ++ "\nSource: " ++ show src ++ "\nDelta: " ++ show delta 
+      msg = "NaN result." ++ "\nSource: " ++ show src ++ "\nDelta: " ++ show delta
         ++  "\nRHS: " ++ show rhs ++ "\nJacobiEval: " ++ show jacobiEval ++ "\nJMatrix:" ++ show jMatrix
 
   in if checkNaN
       then error msg
       else (checkDest, evalDest)
 
-checkIterNewton :: Double -> Double -> Double -> Bool 
+checkIterNewton :: Double -> Double -> Double -> Bool
 checkIterNewton newtonEps newV oldV =
   -- delta <= eps -- absolute error
   (newV - oldV) / newV <= newtonEps -- relative error 
@@ -235,7 +235,7 @@ approxFixpFromNewton jMatrix leqMap newtonEps viEps maxItersNewton maxItersVI pr
         then approxFixpFrom leqMap viEps maxItersVI newProbVec
         else approxFixpFromNewton jMatrix leqMap newtonEps viEps (maxItersNewton - 1) maxItersVI newProbVec
 
-approxFixpNewtonWithHint :: (MonadIO m, MonadLogger m)
+approxFixpNewtonWithHint :: (MonadIO m, MonadLogger m, Show k)
            => AugEqMap k -> (k -> Double) -> Double -> Double -> Int -> Int -> ProbVec Double -> m (ProbVec Double)
 approxFixpNewtonWithHint augEqMap f eps viEps maxIters maxItersVI hint = do
   leqMap <- toLiveEqMapWith augEqMap f
@@ -274,7 +274,7 @@ approxFixpFrom leqMap eps maxIters probVec =
       then newProbVec
       else  approxFixpFrom leqMap eps (maxIters - 1) newProbVec
 
-approxFixpWithHint :: (MonadIO m, MonadLogger m, Ord n, Fractional n, Show n)
+approxFixpWithHint :: (MonadIO m, MonadLogger m, Ord n, Fractional n, Show n, Show k)
            => AugEqMap k -> (k -> n) -> n -> Int -> ProbVec n -> m (ProbVec n)
 approxFixpWithHint augEqMap f eps maxIters hint = do
   leqMap <- toLiveEqMapWith augEqMap f
@@ -360,4 +360,4 @@ retrieveEquations :: (MonadIO m) => AugEqMap n -> Int -> m [(Int, FixpEq n)]
 retrieveEquations (eqMap, _) semiconfId_ = liftIO $ MM.lookup eqMap semiconfId_
 
 liveVariables :: (MonadIO m) => AugEqMap n ->  m (Vector VarKey)
-liveVariables (_,lVarsRef) = V.fromList . Set.toList <$> liftIO (readIORef lVarsRef)
+liveVariables (_,lVarsRef) = V.fromList . Set.elems <$> liftIO (readIORef lVarsRef)

@@ -110,7 +110,7 @@ computeEigen leqSys eps maxIters lowerApprox eigenVec =
       (newEigenVec, eigenVal, iters) = powerIterate eps maxIters matrix eigenVec
   in (newEigenVec, eigenVal - 1, iters) -- -1 because we added the identity matrix
 
-ovi :: (MonadIO m, MonadLogger m)
+ovi :: (MonadIO m, MonadLogger m, Show k)
     => OVISettings Double -> AugEqMap k -> (k -> Double) -> ProbVec Double -> m (OVIResult Double)
 ovi settings augEqMap f lowerApproxInitial = do
   -- create system containing only live equations
@@ -177,7 +177,7 @@ ovi settings augEqMap f lowerApproxInitial = do
 
   go (oviKleeneEps settings) (oviPowerIterEps settings) lowerApproxInitial lowerApproxInitial (oviMaxIters settings) eigenVecInitial
 
-oviToRational :: (MonadIO m, MonadLogger m, Ord n, RealFrac n, Show n, RealFloat n)
+oviToRational :: (MonadIO m, MonadLogger m, Ord n, RealFrac n, Show n, RealFloat n, Show k)
                        => OVISettings n -> AugEqMap k -> (k -> n) -> OVIResult n -> m Bool
 oviToRational settings augEqMap@(_, _) f oviRes = do
   let eps = oviRationalApproxEps settings
