@@ -330,7 +330,7 @@ weightQuerySCC globals sIdGen delta supports current target useNewton = do
       liftIO $ HT.insert (graphMap globals) decodedSemiconf newId
       liftIO $ addtoPath globals semiconf newId
       -- encoding the whole support
-      _ <- dfs globals sIdGen delta supports semiconf (newId, targetId) useNewton
+      _ <- dfs globals sIdGen delta supports semiconf newId useNewton
       eps <- liftIO $ readIORef (actualEps globals)
       liftIO $ approx eps <$> retrieveValue globals sIdGen delta q targetId
 
@@ -374,10 +374,10 @@ dfs :: (MonadIO m, MonadLogger m, SatState state, Eq state, Hashable state, Show
   -> Delta state
   -> Vector (Set(StateId state))
   -> (StateId state, Stack state) -- current semiconf
-  -> (Int, Int)
+  -> Int
   -> Bool
   -> m PopCnxts
-dfs globals sIdGen delta supports (q,g) (semiconfId, target) useNewton =
+dfs globals sIdGen delta supports (q,g) semiconfId useNewton =
   let qState = getState q
       qProps = getStateProps (bitenc delta) qState
       precRel = (prec delta) (fst . fromJust $ g) qProps
@@ -407,7 +407,7 @@ dfs globals sIdGen delta supports (q,g) (semiconfId, target) useNewton =
       cases nextSemiconf nSCId iVal
         | (iVal == 0) = do
             liftIO $ addtoPath globals nextSemiconf nSCId
-            dfs globals sIdGen delta supports nextSemiconf (nSCId, target) useNewton
+            dfs globals sIdGen delta supports nextSemiconf nSCId useNewton
         | (iVal < 0)  = liftIO $ retrieveRightContexts (eqMap globals) nSCId
         | (iVal > 0)  = liftIO $ merge globals nextSemiconf nSCId >> return IntSet.empty
         | otherwise = error "unreachable error"
