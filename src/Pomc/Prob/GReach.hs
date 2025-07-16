@@ -277,7 +277,6 @@ data WeightedGRobals state = WeightedGRobals
   , sStack     :: IOStack (StateId state, Stack state)
   , bStack     :: IOStack Int
   , iVector    :: HT.BasicHashTable Int Int
-  , successorsCntxs :: HT.BasicHashTable Int IntSet
   , eqMap :: AugEqMap (EqMapNumbersType,EqMapNumbersType)
   , actualEps :: IORef EqMapNumbersType
   , stats :: STRef RealWorld Stats
@@ -290,7 +289,6 @@ newWeightedGRobals len stats = liftIO $ do
   newSStack <- IOGS.new
   newBStack <- IOGS.new
   newIVector <- HT.newSized len
-  newScntxs <- HT.newSized len
   newLowerEqMap <- IOMM.empty
   newLowerLiveVars <- newIORef Set.empty
   newEps <- newIORef defaultTolerance
@@ -299,7 +297,6 @@ newWeightedGRobals len stats = liftIO $ do
                          , sStack = newSStack
                          , bStack = newBStack
                          , iVector = newIVector
-                         , successorsCntxs = newScntxs
                          , eqMap = (newLowerEqMap, newLowerLiveVars)
                          , actualEps = newEps
                          , stats = stats
@@ -413,7 +410,7 @@ dfs globals sIdGen delta supports (q,g) (semiconfId, target) useNewton =
         | (iVal == 0) = do
             liftIO $ addtoPath globals nextSemiconf nSCId
             dfs globals sIdGen delta supports nextSemiconf (nSCId, target) useNewton
-        | (iVal < 0)  = liftIO $ lookupCntxs globals nSCId
+        | (iVal < 0)  = liftIO $ retrieveRightContexts (eqMap globals) nSCId
         | (iVal > 0)  = liftIO $ merge globals nextSemiconf nSCId >> return IntSet.empty
         | otherwise = error "unreachable error"
       follow nextSemiconf = do
@@ -429,11 +426,6 @@ lookupIValue :: WeightedGRobals state -> Int -> IO Int
 lookupIValue globals semiconfId = do
   maybeIval <- HT.lookup (iVector globals) semiconfId
   maybe (return 0) return maybeIval
-
-lookupCntxs :: WeightedGRobals state -> Int -> IO IntSet
-lookupCntxs globals semiconfId = do
-  maybeCntxs <- HT.lookup (successorsCntxs globals) semiconfId
-  maybe (return IntSet.empty) return maybeCntxs
 
 lookupSemiconf :: WeightedGRobals state -> (StateId state, Stack state) -> IO Int
 lookupSemiconf globals semiconf = do
@@ -481,7 +473,6 @@ createComponent globals sIdGen delta supports popContxs semiconfId useNewton = d
         forM poppedSemiconfs $ \s -> do
           actualId <- fromJust <$> HT.lookup (graphMap globals) (decode s)
           HT.insert (iVector globals) actualId (-1)
-          HT.insert (successorsCntxs globals) actualId popContxs
           return (s, actualId)
       doEncode poppedSemiconfs = do
         let toEncode = [QuantVariable s semiconfId_ popContxs | (s, semiconfId_) <- poppedSemiconfs]
