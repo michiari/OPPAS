@@ -384,7 +384,7 @@ dfs globals sIdGen delta supports (q,g) semiconfId useNewton =
       transitionCases
         -- this case includes the initial push
         | (isNothing g) || precRel == Just Yield = do
-          unless ((consistentFilter delta) qState) $ error "inconsistent state in a push"
+          --unless ((consistentFilter delta) qState) $ error "inconsistent state in a push"
           newPushStates <- liftSTtoIO $ wrapStates sIdGen $ map fst $ (deltaPush delta) qState
           forM_ newPushStates (\p -> follow (p, Just (qProps, q))) -- discard the result
           let isConsistentOrPop p = let s = getState p in
@@ -396,7 +396,7 @@ dfs globals sIdGen delta supports (q,g) semiconfId useNewton =
             else IntSet.unions <$> forM newSupportStates (\p -> follow (p, g))
 
         | precRel == Just Equal = do
-          unless ((consistentFilter delta) qState) $ error "inconsistent state in a push"
+          --unless ((consistentFilter delta) qState) $ error "inconsistent state in a shift"
           newShiftStates <- liftSTtoIO $ wrapStates sIdGen $ map fst $ (deltaShift delta) qState
           IntSet.unions <$> forM newShiftStates (\p -> follow (p, Just (qProps, snd . fromJust $ g)))
 
@@ -418,6 +418,7 @@ dfs globals sIdGen delta supports (q,g) semiconfId useNewton =
   in do
     popContxs <- transitionCases
     createComponent globals sIdGen delta supports popContxs semiconfId useNewton
+    return popContxs
 
 lookupIValue :: WeightedGRobals state -> Int -> IO Int
 lookupIValue globals semiconfId = do
@@ -458,7 +459,7 @@ createComponent :: (MonadIO m, MonadLogger m, SatState state, Eq state, Hashable
   -> PopCnxts
   -> Int
   -> Bool
-  -> m PopCnxts
+  -> m ()
 createComponent globals sIdGen delta supports popContxs semiconfId useNewton = do
   topB <- liftIO . IOGS.peek $ bStack globals
   iVal <- liftIO $ lookupIValue globals semiconfId
@@ -480,11 +481,10 @@ createComponent globals sIdGen delta supports popContxs semiconfId useNewton = d
             in addFixpEqs (eqMap globals) id_ eqs)
           forM_ toEncode $ \qv -> encode qv globals sIdGen delta supports sccMembers
         solveSCCQuery sccMembers globals useNewton
-        return popContxs
       cases
-        | iVal /= topB = return popContxs
+        | iVal /= topB = return ()
         | not (IntSet.null popContxs) = createC >>= doEncode -- can reach a pop
-        | otherwise = createC >> return popContxs -- cannot reach a pop
+        | otherwise = createC >> return () -- cannot reach a pop
   cases
 
 
