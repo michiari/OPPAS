@@ -379,7 +379,6 @@ dfs :: (MonadIO m, MonadLogger m, SatState state, Eq state, Hashable state, Show
   -> m PopCnxts
 dfs globals sIdGen delta supports (q,g) (semiconfId, target) useNewton =
   let qState = getState q
-      gState = getState . snd . fromJust $ g
       qProps = getStateProps (bitenc delta) qState
       precRel = (prec delta) (fst . fromJust $ g) qProps
       transitionCases
@@ -401,8 +400,7 @@ dfs globals sIdGen delta supports (q,g) (semiconfId, target) useNewton =
           newShiftStates <- liftSTtoIO $ wrapStates sIdGen $ map fst $ (deltaShift delta) qState
           IntSet.unions <$> forM newShiftStates (\p -> follow (p, Just (qProps, snd . fromJust $ g)))
 
-        | precRel == Just Take = IntSet.fromList <$>
-            mapM (\(unwrapped, _) -> getId <$> liftSTtoIO (wrapState sIdGen unwrapped)) ((deltaPop delta) qState gState)
+        | precRel == Just Take = liftIO $ encodePopAndSolveSCC (q,g) semiconfId globals sIdGen delta
 
         | otherwise = error "unreachable error"
 
@@ -417,7 +415,6 @@ dfs globals sIdGen delta supports (q,g) (semiconfId, target) useNewton =
         nSCId <- liftIO $ lookupSemiconf globals nextSemiconf
         iVal <- liftIO $ lookupIValue globals nSCId
         cases nextSemiconf nSCId iVal
-
   in do
     popContxs <- transitionCases
     createComponent globals sIdGen delta supports popContxs semiconfId useNewton
@@ -466,7 +463,6 @@ createComponent globals sIdGen delta supports popContxs semiconfId useNewton = d
   topB <- liftIO . IOGS.peek $ bStack globals
   iVal <- liftIO $ lookupIValue globals semiconfId
   let createC = liftIO $ do
-        liftSTtoIO $ modifySTRef' (stats globals) $ \s@Stats{sccCountQuant = acc} -> s{sccCountQuant = acc + 1}
         IOGS.pop_ (bStack globals)
         sSize <- IOGS.size $ sStack globals
         poppedSemiconfs <- IOGS.multPop (sStack globals) (sSize - iVal + 1) -- the last one is to gn
@@ -502,9 +498,7 @@ encode :: (SatState state, Eq state, Hashable state, Show state)
   -> IntSet
   -> IO ()
 encode (QuantVariable (q,g) id_ popContexts) globals sIdGen delta supports sccMembers =
-    let
-        qState = getState q
-        gState = getState . snd . fromJust $ g
+    let qState = getState q
         qProps = getStateProps (bitenc delta) qState
         precRel = (prec delta) (fst . fromJust $ g) qProps
         cases
@@ -513,16 +507,6 @@ encode (QuantVariable (q,g) id_ popContexts) globals sIdGen delta supports sccMe
 
           | precRel == Just Equal =
               encodeShift globals sIdGen delta supports q g qState id_ popContexts sccMembers
-
-          | precRel == Just Take = do
-              distr <- mapM
-                (\(unwrapped, e) -> do 
-                  p <- stToIO $ wrapState sIdGen unwrapped
-                  return (getId p, PopEq (fromRational e, fromRational e))
-                ) $ filter ((> 0) . snd) ((deltaPop delta) qState gState)
-              addFixpEqs (eqMap globals) id_ (IntMap.fromList distr)
-              liftSTtoIO $ modifySTRef' (stats globals) $ 
-                \s@Stats{equationsCountQuant = acc} -> s{equationsCountQuant = acc + length distr}
 
           | otherwise = fail "unexpected prec rel"
     in cases
@@ -657,6 +641,32 @@ encodeShift globals sIdGen delta supports _ g qState semiconfId_ rightCnxts sccM
       let eqs = IntMap.fromSet (const (PushEq [])) toBeEncoded in
         addFixpEqs (eqMap globals) id_ eqs
     forM_ shiftVarKeystoEncode $ \qv -> encode qv globals sIdGen delta supports sccMembers
+
+encodePopAndSolveSCC :: (SatState state, Eq state, Hashable state, Show state)
+  => (StateId state, Stack state) -- current semiconf
+  -> Int
+  -> WeightedGRobals state
+  -> SIdGen RealWorld state
+  -> Delta state
+  -> IO IntSet
+encodePopAndSolveSCC (q,g) id_ globals sIdGen delta =
+    let
+        qState = getState q
+        gState = getState . snd . fromJust $ g
+    in do
+      liftSTtoIO $ modifySTRef' (stats globals) $ \s@Stats{sccCountQuant = acc} -> s{sccCountQuant = acc + 1}
+      IOGS.pop_ (bStack globals)
+      IOGS.pop_ (sStack globals)
+      HT.insert (iVector globals) id_ (-1)
+      distr <- mapM
+        (\(unwrapped, e) -> do 
+          p <- stToIO $ wrapState sIdGen unwrapped
+          return (getId p, PopEq (fromRational e, fromRational e))
+        ) $ filter ((> 0) . snd) ((deltaPop delta) qState gState)
+      addFixpEqs (eqMap globals) id_ (IntMap.fromList distr)
+      liftSTtoIO $ modifySTRef' (stats globals) $ 
+        \s@Stats{equationsCountQuant = acc} -> s{equationsCountQuant = acc + length distr}
+      return (IntSet.fromList (map fst distr))
 
 -- note that we consider SCCs in the semiconfiguration graph: 
 -- each SCC in the graph might correspond to multiple SCCs in the equation system
