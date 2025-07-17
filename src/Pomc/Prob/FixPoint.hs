@@ -344,7 +344,7 @@ preprocessApproxFixp augEqMap@(_, lVarsRef) f = do
               Just v  -> (True, M.insert varKey v upVars, lVars)
             ) (False, updatedVars, []) liveVars
 
-          vars = zip (Set.toList lVars) (V.toList leqMap)
+          vars = zip (Set.elems lVars) (V.toList leqMap)
           upVars = go (True, M.empty, vars)
       return upVars
 
