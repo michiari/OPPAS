@@ -466,7 +466,7 @@ computeDsts bitenc pconv allProps gvii localsInfo oldVval act dt =
          ) -- Calls must be evaluated immediately in the label,
            -- but we leave the rest of the state unchanged so it gets pushed.
            -- Other actions are evaluated in the next state
-     newDsts
+     (filter ((> 0) . snd) newDsts)
   where cvval = case act of
           CallOp _ _ _ -> prepareForCall act oldVval
           _ -> oldVval
