@@ -289,7 +289,7 @@ newWeightedGRobals len stats = liftIO $ do
   newSStack <- IOGS.new
   newBStack <- IOGS.new
   newIVector <- HT.newSized len
-  newLowerEqMap <- IOMM.empty
+  newLowerEqMap <- IOMM.emptySized len
   newLowerLiveVars <- newIORef Set.empty
   newEps <- newIORef defaultTolerance
   return WeightedGRobals { idSeq = newIdSeq
@@ -338,7 +338,7 @@ weightQuerySCC globals sIdGen delta supports current target useNewton = do
       truncatedUB = min 1 ub
   logInfoN $ "Returning weights: " ++ show (truncatedLB, truncatedUB)
   when (lb > ub || lb > 1 || ub - lb > 1 % 50) $ 
-    error $ "unsound or too loose bounds on weights for this summary transition: " ++ show (lb,ub)
+    error $ "unsound or too loose bounds on weights for this support transition: " ++ show (lb,ub)
   return (truncatedLB, truncatedUB)
 
 retrieveValue :: (SatState state, Eq state, Hashable state, Show state)
@@ -535,7 +535,7 @@ encodePush globals sIdGen delta supports q g qState semiconfId_ rightCnxts sccMe
       suppEndsIds = IntSet.fromList . map decodeStateId $ suppEnds
 
   in do
-    pushInfo <- forM (filter ((> 0) . snd) ((deltaPush delta) qState)) $ \(unwrapped, prob_) -> do
+    pushInfo <- forM ((deltaPush delta) qState) $ \(unwrapped, prob_) -> do
       p <- stToIO (wrapState sIdGen unwrapped)
       let decoded = (decodeStateId p, c, d)
       id_ <- fromJust <$> HT.lookup (graphMap globals) decoded
@@ -607,7 +607,7 @@ encodeShift globals sIdGen delta supports _ g qState semiconfId_ rightCnxts sccM
   let qProps = getStateProps (bitenc delta) qState
       newG = Just (qProps, snd . fromJust $ g)
   in do
-    shiftInfo <- forM (filter ((> 0) . snd) ((deltaShift delta) qState)) $ \(unwrapped, prob_) -> do
+    shiftInfo <- forM ((deltaShift delta) qState) $ \(unwrapped, prob_) -> do
       p <- stToIO (wrapState sIdGen unwrapped)
       let dest = (p, Just (qProps, snd . fromJust $ g))
           decoded = decode dest
@@ -662,7 +662,7 @@ encodePopAndSolveSCC (q,g) id_ globals sIdGen delta =
         (\(unwrapped, e) -> do 
           p <- stToIO $ wrapState sIdGen unwrapped
           return (getId p, PopEq (fromRational e, fromRational e))
-        ) $ filter ((> 0) . snd) ((deltaPop delta) qState gState)
+        ) ((deltaPop delta) qState gState)
       addFixpEqs (eqMap globals) id_ (IntMap.fromList distr)
       liftSTtoIO $ modifySTRef' (stats globals) $ 
         \s@Stats{equationsCountQuant = acc} -> s{equationsCountQuant = acc + length distr}

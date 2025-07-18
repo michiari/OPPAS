@@ -15,6 +15,7 @@ module Pomc.IOMapMap ( IOMapMap
                    , member
                    , delete
                    , empty
+                   , emptySized
                    , showIOMapMap
                    , foldMaps
                    ) where
@@ -128,6 +129,12 @@ member mmref idx key = do
 empty :: IO (IORef (IOMapMap v))
 empty = do
   mm <- MV.replicate 4 Map.empty
+  newIORef mm
+
+-- an empty Map Map, an array of maps
+emptySized :: Int -> IO (IORef (IOMapMap v))
+emptySized l = do
+  mm <- MV.replicate l Map.empty
   newIORef mm
 
 foldMaps :: IORef (IOMapMap v) -> IO (Map (Int,Int) v)
