@@ -82,6 +82,7 @@ executables:
     - text
     - containers
     - cmdargs
+    ld-options: -Wl,-rpath -Wl,$ORIGIN/lib
   popacheck:
     main:           Main.hs
     source-dirs:    popacheck
@@ -97,6 +98,7 @@ executables:
     - text
     - containers
     - cmdargs
+    ld-options: -Wl,-rpath -Wl,$ORIGIN/lib
 
 internal-libraries:
   pomc-tests:
