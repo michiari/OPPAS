@@ -1,7 +1,9 @@
-name:               pomc
+name:               oppas
 version:            3.0.0
-synopsis:           A model-checking tool for POTL
-description:        A model-checking tool for POTL
+synopsis:           A tool suite for verifying recursive (probabilistic) programs.
+description:        >-
+  OPPAS contains two tools. POMC, for verifying recursive programs,
+  and POPACheck, for probabilistic programs.
 category:           Formal methods
 
 author:             Davide Bergamaschi, Michele Chiari and Francesco Pontiggia
@@ -77,7 +79,7 @@ executables:
     - -Wall
     - -O2
     dependencies:
-    - pomc
+    - oppas
     - megaparsec
     - text
     - containers
@@ -92,7 +94,7 @@ executables:
     - -Wall
     - -O2
     dependencies:
-    - pomc
+    - oppas
     - filepath
     - megaparsec
     - text
@@ -107,7 +109,7 @@ internal-libraries:
     - -Wall
     - -O2
     dependencies:
-    - pomc
+    - oppas
     - containers
     - tasty
     - tasty-hunit
