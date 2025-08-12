@@ -1,0 +1,14 @@
+probabilistic query: quantitative;
+formula = F (ret And fish And [fish | f1]);
+program:
+main() {
+  query fish();
+}
+
+fish() {
+  bool f1, f2, extracted;
+  f1 = true {1 : 2} false;
+  f2 = true;
+  extracted = f1 {1 : 2} f2;
+  observe extracted;
+}

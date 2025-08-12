@@ -1,0 +1,3 @@
+probabilistic query: approximate;
+program:
+f () { }

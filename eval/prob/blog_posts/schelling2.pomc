@@ -1,0 +1,28 @@
+probabilistic query: quantitative;
+formula = XNu ([main|resa == resb]);
+
+program:
+main() {
+  bool resa, resb;
+  query alice(resa);
+  query bob(resb);
+}
+
+alice(bool &x) {
+    bool prior_alice, bob_choice;
+    prior_alice = true {11 : 20} false;
+    query bob(bob_choice);
+    observe prior_alice == bob_choice;
+    x = prior_alice;
+}
+
+bob(bool &y) {
+    bool prior_bob, recurse, alice_choice;
+    prior_bob = true {11 : 20} false;
+    recurse = true {1 : 5} false;
+    if (recurse) {
+        query alice(alice_choice);
+        observe prior_bob == alice_choice;
+    } else {}
+    y = prior_bob;
+}

@@ -1,0 +1,9 @@
+probabilistic query: approximate;
+program:
+f () {
+  bool x;
+  x = true {1 : 2} false;
+  while (x) {
+    x = x;
+  }
+}

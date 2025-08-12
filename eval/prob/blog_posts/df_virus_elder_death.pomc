@@ -1,0 +1,38 @@
+probabilistic query: quantitative;
+formula = F (elder And XNu [elder|casualty]);
+
+program:
+young() {
+  u2 y, e;
+
+  y = 0 {1 : 3} 1 {1 : 3} 2;
+  e = 0 {1 : 2} 1;
+
+  while (y > 0) {
+    young();
+    y = y - 1;
+  }
+
+  if (e > 0) {
+    elder();
+  } else {}
+}
+
+elder() {
+  bool casualty;
+  u2 y, e;
+
+  y = 0 {1 : 2} 1;
+  e = 0 {1 : 3} 1 {1 : 3} 2;
+
+  if (y > 0) {
+    young();
+  } else {}
+
+  while (e > 0) {
+    elder();
+    e = e - 1;
+  }
+
+  casualty = true {1 : 100} false;
+}
