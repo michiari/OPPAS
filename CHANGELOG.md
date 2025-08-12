@@ -1,10 +1,20 @@
 # Changelog
 
-## v3.0.0 (TBD)
+## v3.1.0 (2025/08/12)
+
+- More user-friendly output format for POPACheck
+- Add `--stats` flag to get old POPACheck output format
+- Rename package to `oppas`
+- Performance improvements to the probabilistic model checking engine
+- Bug fixes
+
+
+## v3.0.0 (2025/06/27)
 
 - Add POPACheck
 - Support for probabilistic pushdown model checking
 - Support for MiniProb inputs (MiniProc + probabilistic assignments and observations)
+
 
 ## v2.2.0 (2024/08/02)
 

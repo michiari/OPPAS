@@ -44,7 +44,7 @@ popacheckArgs = POPACheckArgs
   , fileName = def &= args &= typFile
   }
   &= program "popacheck"
-  &= summary "POPACheck v3.0.0"
+  &= summary "POPACheck v3.1.0"
   &= details [ "Only one input file can be specified." ]
 
 main :: IO ()

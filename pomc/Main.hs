@@ -59,7 +59,7 @@ pomcArgs = PomcArgs
   , fileName = def &= args &= typFile
   }
   &= program "pomc"
-  &= summary "POMC v3.0.0"
+  &= summary "POMC v3.1.0"
   &= details [ "Only one input file can be specified."
              , "--finite and --infinite cannot be specified together."
              , "--explicit and --smt cannot be specified together."
