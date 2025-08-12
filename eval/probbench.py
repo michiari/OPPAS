@@ -6,7 +6,7 @@ import subprocess
 import re
 import statistics
 import joblib
-from mcbench import expand_files, to_list
+from mcbench import expand_files
 import csv
 from tabulate import tabulate
 
@@ -80,6 +80,7 @@ def exec_bench(fname, args):
             '--',
             'popacheck',
             fname,
+            '--stats',
             '+RTS',
             '-t',
             '--machine-readable',
@@ -199,7 +200,8 @@ def exec_all(fnames, args):
     else:
         return joblib.Parallel(n_jobs=args.jobs)(joblib.delayed(iter_bench)(fname, args)
                                                  for fname in fnames)
-
+def to_list(results, key_map_list):
+    return [[mapf(r[key]) for key, mapf in key_map_list] for r in results]
 
 if __name__ == '__main__':
     argp = argparse.ArgumentParser()

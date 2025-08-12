@@ -16,17 +16,19 @@ import Pomc.TimeUtils (timeAction, timeToString)
 import Pomc.LogUtils (LogLevel(..), selectLogVerbosity)
 
 import Prelude hiding (readFile)
-import Numeric (showEFloat)
+import Numeric (showEFloat, showFFloat)
 
 import System.Exit
 import System.FilePath
 import System.Console.CmdArgs
+import Control.Monad (when)
 import Text.Megaparsec
 import Data.Text.IO (readFile)
 
 data POPACheckArgs = POPACheckArgs
   { noovi :: Bool
   , gauss :: Bool
+  , stats :: Bool
   , verbose :: Int
   , maxDepth :: Int
   , fileName :: FilePath
@@ -36,6 +38,7 @@ popacheckArgs :: POPACheckArgs
 popacheckArgs = POPACheckArgs
   { noovi = False &= help "Use z3 instead of Optimistic Value Iteration for computing upper bounds to the Least Fixed Point solution of the equation systems for pOPA's termination probabilities"
   , gauss = False &= help "Use Gauss-Seidel Value Iteration instead of Newton's method to iterate the Least Fixed point solution of the equation systems for pOPA's termination probabilities and for quantitative model checking"
+  , stats = False &= help "Print detailed results containing technical stats."
   , verbose = 0 &= help "Print more info about model checking progress. 0 = no logging (default), 1 = show info, 2 = debug mode"
   , maxDepth = 100 &= help "Max stack depth when exporting a Markov Chain representation of the input program with unfolded stack (default = 100) [test feature only]"
   , fileName = def &= args &= typFile -- &= help "Input file"
@@ -54,6 +57,7 @@ main = do
         | otherwise = OVI updateStrategy
       depth = maxDepth pargs
       fname = fileName pargs
+      printStats = stats pargs
       logLevel = case verbose pargs of
         0 -> Nothing
         1 -> Just LevelInfo
@@ -66,92 +70,116 @@ main = do
             Left  errBundle -> die (errorBundlePretty errBundle)
             Right creq      -> return creq
   totalTime <- case creq of
-    ProbTermRequest prog -> runProbTerm logLevel probSolver prog
-    ProbCheckRequest phi prog False -> runQualProbCheck logLevel probSolver phi prog
-    ProbCheckRequest phi prog True -> runQuantProbCheck logLevel probSolver phi prog
+    ProbTermRequest prog -> runProbTerm printStats logLevel probSolver prog
+    ProbCheckRequest phi prog False -> runQualProbCheck printStats logLevel probSolver phi prog
+    ProbCheckRequest phi prog True -> runQuantProbCheck printStats logLevel probSolver phi prog
     ProbUnfoldRequest phi prog -> runUnfoldAndExport logLevel phi prog depth fname
     _ -> die "POPACheck only supports probabilistic queries. Please use the pomc executable for non-probabilistic model checking."
 
-  putStrLn ("\n\nTotal elapsed time: " ++ timeToString totalTime ++
+  putStrLn ("\nTotal elapsed time: " ++ timeToString totalTime ++
             " (" ++ showEFloat (Just 4) totalTime " s)")
   where
-    runProbTerm logLevel solver prog = do
-      putStr (concat [ "\nProbabilistic Termination Checking\nQuery: ApproxSingleQuery ", show solver
-                     , "\nResult:  "
-                     ])
-      ((tres@(ApproxSingleResult (lb, ub)), stats, _), time) <- timeAction fst3 $ selectLogVerbosity logLevel
+    runProbTerm printStats logLevel solver prog = do
+      putStrLn "Probabilistic Termination Checking"
+      when printStats $ putStrLn $ "Query: ApproxSingleQuery " ++ (show solver)
+      putStr "Result: "
+      ((tres@(ApproxSingleResult (lb, ub)), stats, _), time) <- timeAction fst3
+        $ selectLogVerbosity logLevel
         $ programTermination solver prog
-      putStr $ show tres
-      putStrLn (concat [ "\nFloating Point Result:  "
-                       , show (fromRational lb :: Double, fromRational ub :: Double)
-                       , "\nElapsed time: "
-                       , timeToString time, " (total), "
-                       , showEFloat (Just 4) (upperBoundTime stats) " s (upper bounds), "
-                       , showEFloat (Just 4) (pastTime stats) " s (PAST certificates), "
-                       , showEFloat (Just 4) (gGraphTime stats) " s (graph analysis)."
-                       , "\nInput pOPA state count: ", show $ popaStatesCount stats
-                       , "\nSupport graph size: ", show $ suppGraphLen stats
-                       , "\nEquations solved for termination probabilities: ", show $ equationsCount stats
-                       , "\nNon-trivial equations solved for termination probabilities: ", show $ nonTrivialEquationsCount stats
-                       , "\nSCC count in the support graph: ", show $ sccCount stats
-                       , "\nSize of the largest SCC in the support graph: ", show $ largestSCCSemiconfsCount stats
-                       , "\nLargest number of non trivial equations in an SCC in the Support Graph: ", show $ largestSCCNonTrivialEqsCount stats
-                       ])
+      if printStats
+        then do
+        putStr $ show tres
+        putStrLn $ concat
+          [ "\nFloating Point Result:  "
+          , show (fromRational lb :: Double, fromRational ub :: Double)
+          , "\nElapsed time: "
+          , timeToString time, " (total), "
+          , showEFloat (Just 4) (upperBoundTime stats) " s (upper bounds), "
+          , showEFloat (Just 4) (pastTime stats) " s (PAST certificates), "
+          , showEFloat (Just 4) (gGraphTime stats) " s (graph analysis)."
+          , "\nInput pOPA state count: ", show $ popaStatesCount stats
+          , "\nSupport graph size: ", show $ suppGraphLen stats
+          , "\nEquations solved for termination probabilities: ", show $ equationsCount stats
+          , "\nNon-trivial equations solved for termination probabilities: ", show $ nonTrivialEquationsCount stats
+          , "\nSCC count in the support graph: ", show $ sccCount stats
+          , "\nSize of the largest SCC in the support graph: ", show $ largestSCCSemiconfsCount stats
+          , "\nLargest number of non trivial equations in an SCC in the Support Graph: ", show $ largestSCCNonTrivialEqsCount stats
+          ]
+        else putStrLn $ concat
+             [ "\n  Lower bound: "
+             , showFFloat (Just 4) (fromRational lb :: Double) ""
+             , "\n  Upper bound: "
+             , showFFloat (Just 4) (fromRational ub :: Double) ""
+             ]
       return time
 
-    runQualProbCheck logLevel solver phi prog = do
-      putStr (concat [ "\nQualitative Probabilistic Model Checking\nQuery: ", show phi
-                     , "\nResult:  "
+    runQualProbCheck printStats logLevel solver phi prog = do
+      putStr (concat [ "Qualitative Probabilistic Model Checking\nQuery: ", show phi
+                     , "\nResult: "
                      ])
       ((tres, stats, _), time) <- timeAction fst3 $ selectLogVerbosity logLevel
         $ qualitativeModelCheckProgram solver phi prog
       putStr $ show tres
-      putStrLn (concat [ "\nElapsed time: "
-                       , timeToString time, " (total), "
-                       , showEFloat (Just 4) (upperBoundTime stats) " s (upper bounds), "
-                       , showEFloat (Just 4) (pastTime stats) " s (PAST certificates), "
-                       , showEFloat (Just 4) (gGraphTime stats) " s (graph analysis)."
-                       , "\nInput pOPA state count: ", show $ popaStatesCount stats
-                       , "\nSupport graph size: ", show $ suppGraphLen stats
-                       , "\nEquations solved for termination probabilities: ", show $ equationsCount stats
-                       , "\nNon-trivial equations solved for termination probabilities: ", show $ nonTrivialEquationsCount stats
-                       , "\nSCC count in the support graph: ", show $ sccCount stats
-                       , "\nSize of the largest SCC in the support graph: ", show $ largestSCCSemiconfsCount stats
-                       , "\nLargest number of non trivial equations in an SCC in the Support Graph: ", show $ largestSCCNonTrivialEqsCount stats
-                       , "\nSize of graph G: ", show $ gGraphSize stats
-                       ])
+      when (not printStats && tres) $ putStr " (almost surely)"
+      if printStats
+        then putStrLn $ concat
+             [ "\nElapsed time: "
+             , timeToString time, " (total), "
+             , showEFloat (Just 4) (upperBoundTime stats) " s (upper bounds), "
+             , showEFloat (Just 4) (pastTime stats) " s (PAST certificates), "
+             , showEFloat (Just 4) (gGraphTime stats) " s (graph analysis)."
+             , "\nInput pOPA state count: ", show $ popaStatesCount stats
+             , "\nSupport graph size: ", show $ suppGraphLen stats
+             , "\nEquations solved for termination probabilities: ", show $ equationsCount stats
+             , "\nNon-trivial equations solved for termination probabilities: ", show $ nonTrivialEquationsCount stats
+             , "\nSCC count in the support graph: ", show $ sccCount stats
+             , "\nSize of the largest SCC in the support graph: ", show $ largestSCCSemiconfsCount stats
+             , "\nLargest number of non trivial equations in an SCC in the Support Graph: ", show $ largestSCCNonTrivialEqsCount stats
+             , "\nSize of graph G: ", show $ gGraphSize stats
+             ]
+        else putChar '\n'
       return time
 
-    runQuantProbCheck logLevel solver phi prog = do
-      putStr (concat [ "\nQuantitative Probabilistic Model Checking\nQuery: ", show phi
-                     , "\nResult:  "
+    runQuantProbCheck printStats logLevel solver phi prog = do
+      putStr (concat [ "Quantitative Probabilistic Model Checking\nQuery: ", show phi
+                     , "\nResult: "
                      ])
       ((tres@(lb,ub), stats, _), time) <- timeAction fst3 $ selectLogVerbosity logLevel
         $ quantitativeModelCheckProgram solver phi prog
-      putStr $ show tres
-      putStr ("\nFloating Point Result:  " ++ show (fromRational lb :: Double, fromRational ub :: Double))
-      putStrLn (concat [ "\nElapsed time: "
-                       , timeToString time, " (total), "
-                       , showEFloat (Just 4) (upperBoundTime stats) " s (upper bounds), "
-                       , showEFloat (Just 4) (pastTime stats) " s (PAST certificates), "
-                       , showEFloat (Just 4) (gGraphTime stats) " s (graph analysis),"
-                       , showEFloat (Just 4) (quantWeightTime stats) " s (upper bounds with OVI for quant MC),"
-                       , showEFloat (Just 4) (quantSolTime stats) " s (eq system for quant MC)."
-                       , "\nInput pOPA state count: ", show $ popaStatesCount stats
-                       , "\nSupport graph size: ", show $ suppGraphLen stats
-                       , "\nEquations solved for termination probabilities: ", show $ equationsCount stats
-                       , "\nNon-trivial equations solved for termination probabilities: ", show $ nonTrivialEquationsCount stats
-                       , "\nSCC count in the support graph: ", show $ sccCount stats
-                       , "\nSize of the largest SCC in the support graph: ", show $ largestSCCSemiconfsCount stats
-                       , "\nLargest number of non trivial equations in an SCC in the Support Graph: ", show $ largestSCCNonTrivialEqsCount stats
-                       , "\nSize of graph G: ", show $ gGraphSize stats
-                       --
-                       , "\nEquations solved for quant mc: ", show $ equationsCountQuant stats
-                       , "\nNon-trivial equations solved for quant mc: ", show $ nonTrivialEquationsCountQuant stats
-                       , "\nSCC count in quant mc weight computation: ", show $ sccCountQuant stats
-                       , "\nSize of the largest SCC in quant mc weight computation: ", show $ largestSCCSemiconfsCountQuant stats
-                       , "\nLargest number of non trivial equations in an SCC in quant mc weight computation: ", show $ largestSCCNonTrivialEqsCountQuant stats
-                       ])
+      if printStats
+        then do
+        putStr $ show tres
+        putStrLn $ concat
+          [ "\nFloating Point Result:  "
+          , show (fromRational lb :: Double, fromRational ub :: Double)
+          , "\nElapsed time: "
+          , timeToString time, " (total), "
+          , showEFloat (Just 4) (upperBoundTime stats) " s (upper bounds), "
+          , showEFloat (Just 4) (pastTime stats) " s (PAST certificates), "
+          , showEFloat (Just 4) (gGraphTime stats) " s (graph analysis),"
+          , showEFloat (Just 4) (quantWeightTime stats) " s (upper bounds with OVI for quant MC),"
+          , showEFloat (Just 4) (quantSolTime stats) " s (eq system for quant MC)."
+          , "\nInput pOPA state count: ", show $ popaStatesCount stats
+          , "\nSupport graph size: ", show $ suppGraphLen stats
+          , "\nEquations solved for termination probabilities: ", show $ equationsCount stats
+          , "\nNon-trivial equations solved for termination probabilities: ", show $ nonTrivialEquationsCount stats
+          , "\nSCC count in the support graph: ", show $ sccCount stats
+          , "\nSize of the largest SCC in the support graph: ", show $ largestSCCSemiconfsCount stats
+          , "\nLargest number of non trivial equations in an SCC in the Support Graph: ", show $ largestSCCNonTrivialEqsCount stats
+          , "\nSize of graph G: ", show $ gGraphSize stats
+          --
+          , "\nEquations solved for quant mc: ", show $ equationsCountQuant stats
+          , "\nNon-trivial equations solved for quant mc: ", show $ nonTrivialEquationsCountQuant stats
+          , "\nSCC count in quant mc weight computation: ", show $ sccCountQuant stats
+          , "\nSize of the largest SCC in quant mc weight computation: ", show $ largestSCCSemiconfsCountQuant stats
+          , "\nLargest number of non trivial equations in an SCC in quant mc weight computation: ", show $ largestSCCNonTrivialEqsCountQuant stats
+          ]
+        else putStrLn $ concat
+             [ "\n  Lower bound: "
+             , showFFloat (Just 4) (fromRational lb :: Double) ""
+             , "\n  Upper bound: "
+             , showFFloat (Just 4) (fromRational ub :: Double) ""
+             ]
       return time
 
     runUnfoldAndExport logLevel phi prog depth fname = do
