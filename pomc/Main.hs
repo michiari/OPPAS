@@ -56,8 +56,9 @@ pomcArgs = PomcArgs
   , smt = 0 &= help "Use the SMT-based model checking engine, specifying the maximum trace length"
   , smt_use_array_theory = False &= help "Encode arrays using the SMT theory of arrays (generally slower) instead of uninterpreted functions. Defaults to false."
   , verbose = 0 &= help "Print more info about model checking progress. 0 = no logging (default), 1 = show info, 2 = debug mode"
-  , fileName = def &= args &= typFile -- &= help "Input file"
+  , fileName = def &= args &= typFile
   }
+  &= program "pomc"
   &= summary "POMC v3.0.0"
   &= details [ "Only one input file can be specified."
              , "--finite and --infinite cannot be specified together."

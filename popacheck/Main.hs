@@ -41,8 +41,9 @@ popacheckArgs = POPACheckArgs
   , stats = False &= help "Print detailed results containing technical stats."
   , verbose = 0 &= help "Print more info about model checking progress. 0 = no logging (default), 1 = show info, 2 = debug mode"
   , maxDepth = 100 &= help "Max stack depth when exporting a Markov Chain representation of the input program with unfolded stack (default = 100) [test feature only]"
-  , fileName = def &= args &= typFile -- &= help "Input file"
+  , fileName = def &= args &= typFile
   }
+  &= program "popacheck"
   &= summary "POPACheck v3.0.0"
   &= details [ "Only one input file can be specified." ]
 
