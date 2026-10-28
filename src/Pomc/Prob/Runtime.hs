@@ -24,8 +24,8 @@ import Data.Vector((!))
 import qualified Data.HashTable.IO as HT
 
 import Control.Monad.IO.Class (MonadIO(liftIO))
-import Control.Monad (foldM, forM, when, forM_, unless)
-import Data.Maybe(fromJust, isJust, mapMaybe)
+import Control.Monad (forM, unless)
+import Data.Maybe(fromJust, isJust)
 import Z3.Monad
 
 --- Computing the expected runtime to certify PAST ---------------------------------
@@ -44,13 +44,17 @@ certifyPAST :: (MonadZ3 z3, MonadFail z3, MonadLogger z3)
   -> z3 Bool
 certifyPAST sccMembers eqMap rVarMap suppGraph mkComp expectPAST = do 
   -- preadding all equations
-  forM_ sccMembers $ \k -> do
-    (_, alreadyEnc) <- lookupRewVar rVarMap k
-    when alreadyEnc $ 
-      error "Encoding reward variable for a semiconf that has already been encoded."
+  pairs <- forM sccMembers $ \gnId_ -> do
+    maybeVar <- liftIO $ HT.lookup rVarMap gnId_
+    if isJust maybeVar
+      then error "Encoding reward variable for a semiconf that has already been encoded."
+      else do
+        newVar <- mkFreshRealVar $ show gnId_
+        liftIO $ HT.insert rVarMap gnId_ newVar
+        return (gnId_, newVar)
   -- encoding all equations
   reset
-  encodeReward sccMembers eqMap rVarMap suppGraph mkComp
+  encodeReward pairs eqMap rVarMap suppGraph mkComp
   withModel (\model -> forM sccMembers $ \id_ -> do
                           var <- liftIO $ fromJust <$> HT.lookup rVarMap id_
                           evaluated <- fromJust <$> eval model var
@@ -64,17 +68,6 @@ certifyPAST sccMembers eqMap rVarMap suppGraph mkComp expectPAST = do
     _ -> error "Undefined result when running the PAST certificate."
   
 --helpers
--- (Z3 Var, was it already present?)
-lookupRewVar :: MonadZ3 z3 => RewVarMap -> RewVarKey -> z3 (AST, Bool)
-lookupRewVar rVarMap key = do
-  maybeVar <- liftIO $ HT.lookup rVarMap key
-  if isJust maybeVar
-    then return (fromJust maybeVar, True)
-    else do
-      newVar <- mkFreshRealVar $ show key
-      liftIO $ HT.insert rVarMap key newVar
-      return (newVar, False)
-
 encodeTransition :: MonadZ3 z3 => Prob -> AST -> z3 AST
 encodeTransition prob_ toAST = do
   probReal <- mkRealNum prob_
@@ -82,26 +75,22 @@ encodeTransition prob_ toAST = do
 -- end helpers
 
 encodeReward :: (MonadZ3 z3, MonadFail z3)
-  => [RewVarKey]
+  => [(RewVarKey,AST)]
   -> EqMap (Double, Double)
   -> RewVarMap
   -> SupportGraph state
   -> (AST -> AST -> z3 AST)
   -> z3 ()
-encodeReward [] _ _ _ _ = return ()
-encodeReward (gnId_:unencoded) eqMap rVarMap suppGraph mkComp = do
-  rewVar <- liftIO $ fromJust <$> HT.lookup rVarMap gnId_
-  let gn = suppGraph ! gnId_
-      transitionCases (Push suppSet pushMap) = 
-        encodeRewPush suppGraph eqMap rVarMap mkComp suppSet pushMap rewVar
-      transitionCases (Shift shiftMap) = 
-        encodeRewShift rVarMap mkComp shiftMap rewVar
-      transitionCases (Pop _) = do -- reward is trivially 1
-        assert =<< mkEq rewVar =<< mkRealNum (1 :: Prob)
-        return []
-
-  newUnencoded <- transitionCases (gnEdges gn)
-  encodeReward (newUnencoded ++ unencoded) eqMap rVarMap suppGraph mkComp
+encodeReward pairs eqMap rVarMap suppGraph mkComp =
+  let encode (gnId_, rewVar) = do
+        let gn = suppGraph ! gnId_
+            transitionCases (Push suppSet pushMap) = 
+              encodeRewPush suppGraph eqMap rVarMap mkComp suppSet pushMap rewVar
+            transitionCases (Shift shiftMap) = 
+              encodeRewShift rVarMap mkComp shiftMap rewVar
+            transitionCases (Pop _) = error "Trivial one rewards should be handled by the Termination algorithm."
+        transitionCases (gnEdges gn)
+  in mapM_ encode pairs
 
 -- encoding helpers --
 encodeRewPush :: (MonadZ3 z3)
@@ -112,56 +101,49 @@ encodeRewPush :: (MonadZ3 z3)
   -> IntSet
   -> IntMap Prob
   -> AST
-  -> z3 [RewVarKey]
+  -> z3 ()
 encodeRewPush suppGraph eqMap rVarMap mkComp suppSet pushMap var = do
   pushInfo <- forM (IntMap.toList pushMap) (\(id_, prob_) -> do
-    (pushVar, alrEnc) <- lookupRewVar rVarMap id_
+    pushVar <- fromJust <$> (liftIO $ HT.lookup rVarMap id_)
     -- if we can find a solution with upper bound coefficient, 
     -- this solution holds also for the actual (uncomputable) coefficients
     rcs <- liftIO $ retrieveEquations eqMap id_ 
     encodedRcs <- forM rcs $ \(pushRC, PopEq (_,ub)) -> do 
       ubAST <- mkRealNum (ub :: Double)
       return (pushRC, ubAST)
-      
-    return (prob_, pushVar, encodedRcs, if alrEnc then Nothing else Just id_))
+    return (prob_, pushVar, encodedRcs))
 
   suppInfo <- forM (IntSet.toList suppSet) (\id_ -> do
-    (suppVar, alrEnc) <- lookupRewVar rVarMap id_
+    suppVar <- fromJust <$> (liftIO $ HT.lookup rVarMap id_)
     let suppStateId_ = getId . fst . semiconf $ suppGraph ! id_
-    return (suppStateId_, suppVar, if alrEnc then Nothing else Just id_))
-
-  let unencPushVars = mapMaybe (\(_,_, _, maybeId_) -> maybeId_) pushInfo
-      unencSuppVars = mapMaybe (\(_, _, maybeId_) -> maybeId_) suppInfo
+    return (suppStateId_, suppVar))
 
   let terms = [(prob_,pushVar,
                     [[termVar,suppVar] |
                        (pushRC, termVar) <- rcs
-                     , (suppStateId_, suppVar, _) <- suppInfo
+                     , (suppStateId_, suppVar) <- suppInfo
                      , pushRC == suppStateId_
                     ]) |
-                  (prob_, pushVar, rcs, _) <- pushInfo
+                  (prob_, pushVar, rcs) <- pushInfo
              ]
   transitions <- forM terms (\(prob_,pushVar, suppTerms) -> do
     encodeTransition prob_ =<< (mkAdd . (pushVar :) =<< mapM mkMul suppTerms))
   one <- mkRealNum (1 :: Prob)
   assert =<< mkComp var =<< mkAdd (one:transitions)
   assert =<< mkGe var one
-  return (unencSuppVars ++ unencPushVars)
 
 encodeRewShift :: MonadZ3 z3
   => RewVarMap
   -> (AST -> AST -> z3 AST)
   -> IntMap Prob
   -> AST
-  -> z3 [RewVarKey]
+  -> z3 ()
 encodeRewShift rVarMap mkComp shiftMap var =
-  let shiftEnc (currTs, newVars) (id_, prob_) = do
-        (toVar, alrEnc) <- lookupRewVar rVarMap id_
-        t <- encodeTransition prob_ toVar
-        return (t:currTs, if alrEnc then newVars else id_:newVars)
+  let shiftEnc (id_, prob_) = do
+        toVar <- fromJust <$> (liftIO $ HT.lookup rVarMap id_)
+        encodeTransition prob_ toVar
   in do
-    (transitions, unencVars) <- foldM shiftEnc ([], []) (IntMap.toList shiftMap)
+    transitions <- mapM shiftEnc (IntMap.toList shiftMap)
     one <- mkRealNum (1 :: Prob)
     assert =<< mkComp var =<< mkAdd (one:transitions)
     assert =<< mkGe var one
-    return unencVars

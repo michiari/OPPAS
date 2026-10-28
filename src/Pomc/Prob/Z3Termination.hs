@@ -451,6 +451,9 @@ encodePopAndSolveSCC globals gnId_ popMap useZ3 =
       solvedVar <- mkRealNum prob_
       liftIO $ IOMM.insert (termVarMap globals) gnId_ rc solvedVar
 
+    one <- mkRealNum (1 :: Prob)
+    liftIO $ HT.insert (rewVarMap globals) gnId_ one
+
     -- compute some statistics
     liftSTtoIO $ modifySTRef' (stats globals) $
       \s@Stats{ sccCountSuppGraph = acc
