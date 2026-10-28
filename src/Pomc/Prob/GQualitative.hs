@@ -45,6 +45,8 @@ import Control.Monad.ST (ST, RealWorld)
 import Data.STRef (STRef, readSTRef, modifySTRef')
 import Data.Maybe (fromJust, isNothing, mapMaybe)
 
+type SCCIDs = IntSet
+
 -- requires: the initial semiconfiguration has id 0
 -- pstate: a parametric type for states of the input popa
 qualitativeModelCheck :: (MonadIO m, MonadLogger m, Ord pstate, Hashable pstate, Show pstate)
@@ -130,7 +132,7 @@ reachPush :: (Ord pstate, Hashable pstate, Show pstate)
   -> State
   -> IntSet -- suppSet 
   -> IntMap Prob -- pushInfo
-  -> ST s IntSet
+  -> ST s SCCIDs
 reachPush gGlobals delta suppGraph fromPhi isPending sIdMap gnId_ q p suppSet pushMap =
   let fPushGns = map (first (suppGraph !)) . filter (isPending . fst) . IntMap.toList $ pushMap
       fSuppGns = map (suppGraph !) . filter isPending . IntSet.toList $ suppSet
@@ -200,7 +202,7 @@ reachShift :: (Ord pstate, Hashable pstate, Show pstate)
   -> Int
   -> State
   -> IntMap Prob
-  -> ST s IntSet
+  -> ST s SCCIDs
 reachShift gGlobals delta suppGraph fromPhi isPending sIdMap gnId_ p shiftMap =
   let fGns = map (first (suppGraph !)) . filter (isPending . fst) . IntMap.toList $ shiftMap
       fPhiStates = (phiDeltaShift delta) p
@@ -223,7 +225,7 @@ reachEdges :: (Ord pstate, Hashable pstate, Show pstate)
   -> Int -- id of current node
   -> [(Prob, GraphNode pstate, State)] -- internal(push/shift) edges
   -> [(GraphNode pstate, State, ProbEncodedSet)] -- support edges
-  -> ST s IntSet
+  -> ST s SCCIDs
 reachEdges gGlobals delta suppGraph fromPhi isPending sIdMap fromId intDests suppDests =
   let mergeEd (Internal p to1_) (Support _ suppSatSet) = SupportAndInternal p to1_ suppSatSet
       mergeEd (Support _ suppSatSet) (Internal p to1_)  = SupportAndInternal p to1_ suppSatSet
@@ -275,7 +277,7 @@ dfs :: (Ord pstate, Hashable pstate, Show pstate)
   -> Bool
   -> StrictMap.Map pstate Int
   -> GNode -- current gnode
-  -> ST s IntSet
+  -> ST s SCCIDs
 dfs suppGraph gGlobals delta isPending fromPhi sIdMap gnode =
   let gn = suppGraph ! (graphNode gnode)
       p = phiNode gnode
@@ -300,8 +302,8 @@ createComponent
   -> DeltaWrapper pstate 
   -> (Int -> Bool) 
   -> GNode 
-  -> IntSet 
-  -> ST s IntSet
+  -> SCCIDs 
+  -> ST s SCCIDs
 createComponent suppGraph gGlobals delta isPending g descendantSCCs = do
   topB <- GS.peek $ bStack gGlobals
   if (iValue g) == topB
@@ -336,7 +338,7 @@ createComponent suppGraph gGlobals delta isPending g descendantSCCs = do
               return filtDescs
     else return descendantSCCs
 
-createComponentPhi :: GGlobals s pstate -> GNode -> IntSet -> ST s IntSet
+createComponentPhi :: GGlobals s pstate -> GNode -> SCCIDs -> ST s SCCIDs
 createComponentPhi gGlobals g descendantSCCs = do
   topB <- GS.peek $ bStack gGlobals
   if (iValue g) == topB
@@ -360,7 +362,7 @@ createComponentPhi gGlobals g descendantSCCs = do
 
 -- helpers for the construction of subgraph H
 --
-deleteDescendants :: GGlobals s pstate -> GraphNodesSCC -> IntSet -> ST s IntSet
+deleteDescendants :: GGlobals s pstate -> GraphNodesSCC -> SCCIDs -> ST s SCCIDs
 deleteDescendants gGlobals sccSemiconfs descendants = do
   modifySTRef' (bottomHSCCs gGlobals) $
     StrictIntMap.filterWithKey (\idx scc -> not (IntSet.member idx descendants) 
