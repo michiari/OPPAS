@@ -12,6 +12,8 @@ import Test.Tasty.HUnit
 import Pomc.Test.EvalFormulas (TestCase, ap, zipExpected, excludeIndices, formulas)
 import Pomc.Test.OPMs (stlV2Alphabet, makeInputSet)
 import Pomc.Potl (Formula(..), Dir(..))
+import Pomc.Prec (Prec(..), StructPrecRel, Alphabet)
+import Pomc.Prop (Prop(..))
 import Pomc.ModelChecker (ExplicitOpa(..), modelCheckExplicitGen)
 
 tests :: TestTree
@@ -19,7 +21,8 @@ tests = testGroup "ModelChecking.hs Omega Tests" [ sasEvalTests, lREvalTests
                                                  , inspectionTest, overflowTest
                                                  , jensenTests, jensenFullTests
                                                  , stackExcTests, stackExcSwapTests
-                                                 , xnextdRegressionTests, dummyLTLTest, dummySupportsTest
+                                                 , xnextdRegressionTests, dummyLTLTest
+                                                 , dummySupportsTest, manyCyclesTest
                                                  ]
 
 sasEvalTests :: TestTree
@@ -896,13 +899,45 @@ dummySupportOPA = ExplicitOpa
             , eoInitials = [0]
             , eoFinals = [1]
             , eoDeltaPush =
-                [ (0, makeInputSet ["call"],   [1,2])
+                [ (0, makeInputSet ["call"], [1,2])
                 ]
             , eoDeltaShift =
-                [ (1, makeInputSet ["ret"],         [3])
+                [ (1, makeInputSet ["ret"], [3])
                 , (2, makeInputSet ["ret"], [3])
                 ]
             , eoDeltaPop =
                 [ (3, 0, [0])
                 ]
+            }
+
+manyCyclesTest :: TestTree
+manyCyclesTest = testGroup "Many Cycles OPA MC Omega Eval Tests" $
+  [makeTestCase manyCyclesOPA (("The accepting SCC is formed of multiple cycles.", Not (Always (Eventually (Atomic $ Prop "q")))), False)]
+
+
+manyCyclesOPA :: ExplicitOpa Word String
+manyCyclesOPA = ExplicitOpa
+            { eoAlphabet = ([Prop "stm"], [
+                              (Prop "stm", Prop "stm",  Equal)
+                            , (Prop "stm", End, Equal) 
+                            ])
+                           
+            , eoInitials = [0]
+            , eoFinals = [3]
+            , eoDeltaPush =
+                [ (0, makeInputSet ["stm"], [0])
+                ]
+            , eoDeltaShift =
+                [ (0, makeInputSet ["stm"], [1])
+                , (1, makeInputSet ["stm"], [2])
+                , (2, makeInputSet ["stm"], [3])
+                , (3, makeInputSet ["stm"], [2])
+                , (2, makeInputSet ["stm"], [1])
+                , (1, makeInputSet ["stm"], [4])
+                , (4, makeInputSet ["stm", "q"], [5])
+                , (5, makeInputSet ["stm"], [6])
+                , (6, makeInputSet ["stm"], [1])
+                ]
+            , eoDeltaPop =
+                []
             }

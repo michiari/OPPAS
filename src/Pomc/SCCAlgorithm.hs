@@ -241,7 +241,8 @@ merge graph gn e = do
     GS.popWhile_ (bStack graph) (\x -> iValue gn < x)
     -- checking acceptance of the found cycle
     sSize <- GS.size $ sStack graph
-    sccEdges <- (maybeToList e ++) <$> GS.multPeek (sStack graph) (sSize - (iValue gn))
+    sccBaseIndex <- GS.peek (bStack graph)
+    sccEdges <- (maybeToList e ++) <$> GS.multPeek (sStack graph) (sSize - sccBaseIndex)
     -- these gns might be duplicated, but we lazily don't care, as it is actually faster
     gns <- mapM (CM.lookup (semiconfsGraph graph) . to) sccEdges
     let maybeSupport (Internal _ ) = Nothing
