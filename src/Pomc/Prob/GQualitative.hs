@@ -35,7 +35,7 @@ import Data.IntSet(IntSet)
 import qualified Data.IntSet as IntSet
 import Data.Hashable(Hashable)
 import qualified Data.HashTable.ST.Basic as BH
-import Data.List(partition)
+import Data.List(partition, nub)
 import Data.Vector(Vector, (!))
 import qualified Data.Vector as V
 import Data.Bifunctor(first)
@@ -318,23 +318,24 @@ createComponent suppGraph gGlobals delta isPending g descendantSCCs = do
         else do
           -- discard all descendants that share a semiconf with the current one
           let sccEdges = init poppedEdges
-          sccSemiconfs <- IntSet.fromList <$> forM sccEdges 
-            (\e -> graphNode <$> CM.lookup (gGraph gGlobals) (toG e))
+          gs <- nub <$> mapM (CM.lookup (gGraph gGlobals) . toG) sccEdges 
+          let sccSemiconfs = IntSet.fromList $ map graphNode gs
+              gsIds = map gId gs
           filtDescs <- deleteDescendants gGlobals sccSemiconfs descendantSCCs
           -- check if current SCC is a candidate bottom SCC of H
           let isBott = isBottom suppGraph sccSemiconfs isPending
-          isAccept <- isAccepting gGlobals delta sccEdges
+              isAccept = isAccepting delta sccEdges gs
           if isBott && isAccept
             then do
               newSCCId <- freshNegId (cGabow gGlobals)
               modifySTRef' (bottomHSCCs gGlobals) $ StrictIntMap.insert newSCCId sccSemiconfs
               let newDescs = IntSet.insert newSCCId filtDescs
-              forM_ sccEdges $ \e -> CM.modify (gGraph gGlobals) 
-                (\g_ -> g_{iValue = newSCCId, descSccs = newDescs}) (toG e)
+              forM_ gsIds $ CM.modify (gGraph gGlobals) 
+                (\g_ -> g_{iValue = newSCCId, descSccs = newDescs})
               return newDescs
             else do
-              forM_ sccEdges $ \e -> CM.modify (gGraph gGlobals) 
-                (\g_ -> g_{iValue = -1, descSccs = filtDescs}) (toG e)
+              forM_ gsIds $ CM.modify (gGraph gGlobals) 
+                (\g_ -> g_{iValue = -1, descSccs = filtDescs})
               return filtDescs
     else return descendantSCCs
 
@@ -384,15 +385,14 @@ isBottom suppGraph suppGraphSCC isPending =
 
 -- third necessary condition for an SCC of G to be a BSCC of H from 
 -- [Etessami and Yannakakis, TOCL 2012, Theo 30]
-isAccepting :: GGlobals s pstate -> DeltaWrapper pstate -> [HEdge] -> ST s Bool
-isAccepting gGlobals delta sccEdges = do
-  gs <- mapM (CM.lookup (gGraph gGlobals) . toG) sccEdges
+isAccepting :: DeltaWrapper pstate -> [HEdge] -> [GNode] -> Bool
+isAccepting delta sccEdges gs =
   let maybeSupport (Internal _ _) = Nothing
       maybeSupport (Support _ sss) = Just sss
       maybeSupport (SupportAndInternal _ _ sss) = Just sss
       acceptanceBitVector = PE.unions $ map (PE.encodeSatState (proBitenc delta) . phiNode) gs 
         ++ mapMaybe maybeSupport sccEdges
-  return $ PE.isSatisfying acceptanceBitVector
+  in PE.isSatisfying acceptanceBitVector
 
 -- condition (2) from [Etessami and Yannakakis, TOCL 2012, Theo 30] is checked 
 -- via the topological decomposition
