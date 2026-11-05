@@ -44,11 +44,12 @@ import qualified Data.Set as Set
 import qualified Data.Strict.Map as M
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Data.Vector.Storable as VS
 import Data.IntSet (IntSet)
 import Data.IntMap(IntMap)
 import qualified Numeric.LinearAlgebra as LA
 import qualified Numeric.LinearAlgebra.Data as LAD
-import Data.Foldable (foldl', foldMap')
+import Data.Foldable (foldMap')
 import Data.Maybe (fromJust)
 import Data.Either (isLeft)
 import Data.Monoid (Sum(..))
@@ -193,9 +194,9 @@ evalEqSysNewton jMatrix leqMap checkRes src =
       rhs = V.zipWith computEq src leqMap
       -- J(P(x) - x) (matrix of coefficients in sparse form)
       jacobiEval = evalSparseMatrix jMatrix src
-      delta = V.fromList . LAD.toList
+      delta = V.convert
         . LA.cgSolve False (LAD.mkSparse jacobiEval)
-        . LAD.vector . V.toList
+        . VS.convert
         $ rhs -- delta = x(k+1) - src
 
       checkNaN = isNaN $ delta V.! 0 -- either all NaN or none
