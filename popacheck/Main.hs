@@ -10,7 +10,7 @@
 module Main (main) where
 
 import Pomc.Prob.ProbModelChecker (programTermination, qualitativeModelCheckProgram, quantitativeModelCheckProgram, exportMarkovChain)
-import Pomc.Prob.ProbUtils (Solver(..), Stats(..), Update(..), TermResult(..), Distr(..))
+import Pomc.Prob.ProbUtils (Solver(..), Stats(..), Update(..), TermResult(..), Distr(..), defaultEps)
 import Pomc.Parse.Parser (checkRequestP, spaceP, CheckRequest(..), preprocess)
 import Pomc.TimeUtils (timeAction, timeToString)
 import Pomc.LogUtils (LogLevel(..), selectLogVerbosity)
@@ -30,6 +30,7 @@ data POPACheckArgs = POPACheckArgs
   , gauss :: Bool
   , stats :: Bool
   , verbose :: Int
+  , eps :: Double
   , maxDepth :: Int
   , fileName :: FilePath
   } deriving (Data, Typeable, Show, Eq)
@@ -40,6 +41,7 @@ popacheckArgs = POPACheckArgs
   , gauss = False &= help "Use Gauss-Seidel Value Iteration instead of Newton's method to iterate the Least Fixed point solution of the equation systems for pOPA's termination probabilities and for quantitative model checking."
   , stats = False &= help "Print detailed results containing technical stats."
   , verbose = 0 &= help "Print more info about model checking progress. 0 = no logging (default), 1 = show info, 2 = debug mode"
+  , eps = defaultEps &= help ("Stopping criterion for iterative numerical methods: bound on the absolute difference between consecutive approximations. Default: " ++ show defaultEps)
   , maxDepth = 100 &= help "Max stack depth when exporting a Markov Chain representation of the input program with unfolded stack (default = 100) [test feature only]"
   , fileName = def &= args &= typFile
   }
@@ -54,8 +56,8 @@ main = do
         | gauss pargs = GS
         | otherwise = Newton
       probSolver
-        | noovi pargs = SMTWithHints updateStrategy
-        | otherwise = OVI updateStrategy
+        | noovi pargs = SMTWithHints updateStrategy (eps pargs)
+        | otherwise = OVI updateStrategy (eps pargs)
       depth = maxDepth pargs
       fname = fileName pargs
       printStats = stats pargs

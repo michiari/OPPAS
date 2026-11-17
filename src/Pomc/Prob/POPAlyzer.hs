@@ -70,8 +70,8 @@ newInfGlobals len s = do
 
 -- infer the posterior distribution of some expression over GLOBAL program variables
 infer :: (MonadIO m, MonadFail m, MonadLogger m)
-  => Update -> Program -> Double -> Expr -> m ((Distr Int, Distr Int), Stats, String)
-infer upStr prog eps expr =
+  => Program -> Solver -> Expr -> m ((Distr Int, Distr Int), Stats, String)
+infer prog solv expr =
   let (_, groupBy, popa) = programToPopa prog Set.empty
       (tsls, tprec) = popaAlphabet popa
       (bitenc, precFunc, _, _, _, _, _, _) =
@@ -97,10 +97,10 @@ infer upStr prog eps expr =
     let gn = suppGraph ! 0
         Push suppSet pushMap = gnEdges gn
     -- compute all termination probabilities via SCC decomposition with Gabow's algorithm.
-    _ <- dfs globals eps suppGraph gn upStr
+    _ <- dfs globals solv suppGraph gn
 
     -- returning termination probabilities of the initial semiconf
-    (lb, ub) <- retrieveValue eps (eqMap globals) suppGraph suppSet pushMap
+    (lb, ub) <- retrieveValue (epsilon solv) (eqMap globals) suppGraph suppSet pushMap
     computedStats <- liftSTtoIO $ readSTRef stats_
     return ((groupBy expr lb, groupBy expr ub), computedStats, show suppGraph)
 
@@ -149,12 +149,11 @@ merge globals gnId_  = do
 -- functions for Gabow algorithm
 dfs :: (MonadIO m, MonadLogger m, MonadFail m)
   => InfGlobals
-  -> Double
+  -> Solver
   -> SupportGraph state
   -> GraphNode state
-  -> Update
   -> m RightContexts
-dfs globals eps suppGraph gn upStr =
+dfs globals solv suppGraph gn =
   let gnId_ = gnId gn
       (_,g) = semiconf gn
       transitionCases (Pop popMap) = encodePopAndSolveSCC globals gnId_ popMap
@@ -163,7 +162,7 @@ dfs globals eps suppGraph gn upStr =
         liftIO $ addtoPath globals gnId_
         -- explore shift transitions
         rightCnxts <- IntSet.unions <$> V.mapM follow (V.fromList . IntMap.keys $ shiftMap)
-        createComponent globals eps suppGraph gnId_ rightCnxts upStr
+        createComponent globals solv suppGraph gnId_ rightCnxts
       transitionCases (Push suppSet pushMap) = do 
         -- add current graphNode to the path
         liftIO $ addtoPath globals gnId_
@@ -172,11 +171,11 @@ dfs globals eps suppGraph gn upStr =
         -- explore support transitions 
         if isNothing g then return IntSet.empty else do
           rightContexts <- IntSet.unions <$> V.mapM follow (V.fromList . IntSet.elems $ suppSet)
-          createComponent globals eps suppGraph gnId_ rightContexts upStr
+          createComponent globals solv suppGraph gnId_ rightContexts
 
       cases nextGn iVal
         | (iVal == 0) = do 
-            cntxs <-  dfs globals eps suppGraph nextGn upStr
+            cntxs <-  dfs globals solv suppGraph nextGn
             updatedIVal <- liftIO (MV.unsafeRead (iVector globals) (gnId nextGn))
             -- small performance optimization to avoid unions between overlapping sets
             if updatedIVal > 0 then return IntSet.empty else return cntxs
@@ -189,13 +188,12 @@ dfs globals eps suppGraph gn upStr =
 
 createComponent :: (MonadIO m, MonadLogger m, MonadFail m)
   => InfGlobals
-  -> Double
+  -> Solver
   -> SupportGraph state
   -> Int
   -> RightContexts
-  -> Update
   -> m RightContexts
-createComponent globals eps suppGraph gnId_ rightCnxts upStr = do
+createComponent globals solv suppGraph gnId_ rightCnxts = do
   topB <- liftIO . IOGS.peek $ bStack globals
   iVal <- liftIO $ MV.unsafeRead (iVector globals) gnId_
   let defaultEqs = IntMap.fromSet (const (PopEq (0,0))) rightCnxts
@@ -216,20 +214,19 @@ createComponent globals eps suppGraph gnId_ rightCnxts upStr = do
         return poppedSemiconfs
       cases
         | iVal /= topB = addFixpEqs (eqMap globals) gnId_ defaultEqs >> return rightCnxts
-        | otherwise = createC >>= encode globals eps suppGraph (isNewton upStr) gnId_ rightCnxts
+        | otherwise = createC >>= encode globals solv suppGraph gnId_ rightCnxts
   cases
 
 -- encode = generate equations for termination probabilities
 encode :: (MonadIO m, MonadLogger m, MonadFail m)
   => InfGlobals
-  -> Double
+  -> Solver
   -> SupportGraph state
-  -> Bool
   -> Int
   -> IntSet
   -> [Int]
   -> m RightContexts
-encode globals eps suppGraph newton gnId_ rightCnxts poppedSemiconfs =
+encode globals solv suppGraph gnId_ rightCnxts poppedSemiconfs =
   let defaultEqs = IntMap.fromSet (const (PopEq (0,0)))
       semiconfs = sort poppedSemiconfs
       semiconfsVec = V.fromList semiconfs
@@ -250,7 +247,7 @@ encode globals eps suppGraph newton gnId_ rightCnxts poppedSemiconfs =
             liftIO $ addFixpEqs (eqMap globals) id_ (defaultEqs rightCnxts)
             enc succInfo id_ rightCnxts
             let liveVars = Set.fromAscList . map (id_, ) . IntSet.toAscList $ rightCnxts
-            solveEqSystem (eqMap globals) liveVars (evalEq (stats globals)) (solveSCC globals eps newton)
+            solveEqSystem (eqMap globals) liveVars (evalEq (stats globals)) (solveSCC globals solv)
           return rightCnxts
         | otherwise = do
           -- need to recompute right contexts
@@ -274,9 +271,7 @@ encode globals eps suppGraph newton gnId_ rightCnxts poppedSemiconfs =
             in unless (IntSet.null rcs) $ enc succInfo id_ rcs
 
           logDebugN "Solving the equation system..."
-          solveEqSystem (eqMap globals) liveVars (evalEq (stats globals)) (solveSCC globals eps newton)
-          unless (gnId_ == semiconfsVec V.! 0)
-            $ error "The entry semiconf to this SCC is not the smallest one in the ordering."
+          solveEqSystem (eqMap globals) liveVars (evalEq (stats globals)) (solveSCC globals solv)
           return (rcsMap 0)
   in do
     logDebugN $ "SCC Members: " ++ show sccMembers
@@ -353,7 +348,6 @@ encodePopAndSolveSCC globals gnId_ popMap =
     addFixpEqs (eqMap globals) gnId_ distr
 
     -- compute some statistics
-    -- compute some statistics
     liftSTtoIO $ modifySTRef' (stats globals) $
       \s@Stats{ sccCountSuppGraph = acc
               , largestSCCSuppGraphSize = acc1
@@ -394,9 +388,10 @@ evalEq stats eqMap_ varKey (PushEq l) = liftIO $ do
 
 -- solve a SCC in the equation system
 solveSCC :: (MonadIO m, MonadLogger m)
-  => InfGlobals -> Double -> Bool -> [VarKey] -> m ()
-solveSCC globals eps newton vars = do
+  => InfGlobals -> Solver -> [VarKey] -> m ()
+solveSCC globals solv vars = do
   let eqs = eqMap globals
+      eps = epsilon solv
       newtonEps = max defaultNewtonEps eps
       -- careful, vars might have duplicated variables in case of self-dependencies
       lVars = Set.fromList vars
@@ -408,7 +403,7 @@ solveSCC globals eps newton vars = do
   startWeights <- startTimer
   -- compute lower bounds
   let approxVec 
-        | newton = approxFixpNewtonWithHint eqsLower newtonEps eps defaultMaxIters defaultMaxIters zeroVec
+        | useNewton solv = approxFixpNewtonWithHint eqsLower newtonEps eps defaultMaxIters defaultMaxIters zeroVec
         | otherwise = approxFixpFrom eqsLower eps defaultMaxIters zeroVec
 
   -- compute upper bounds

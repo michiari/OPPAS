@@ -440,7 +440,7 @@ quantitativeModelCheckExplicitGen solv phi popa =
   in quantitativeModelCheckExplicit solv tphi tPopa
 
 chooseLogic :: Solver -> Maybe Logic
-chooseLogic (OVI _) = Just QF_LRA
+chooseLogic (OVI _ _) = Just QF_LRA
 chooseLogic _ = Just QF_NRA
 
 -- export a Markov Chain representation of the pOPA with unfolded stack up to depth = bound

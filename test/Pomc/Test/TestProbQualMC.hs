@@ -19,27 +19,27 @@ import Test.Tasty.HUnit
 import Pomc.Test.EvalFormulas (TestCase, zipExpected, excludeIndices, probFormulas)
 import Pomc.Test.OPMs (stlV3Alphabet, makeInputSet)
 import Pomc.Prob.ProbModelChecker (ExplicitPopa(..), qualitativeModelCheckExplicitGen)
-import Pomc.Prob.ProbUtils (Solver(..), Update(..))
+import Pomc.Prob.ProbUtils (Solver(..), Update(..), defaultEps)
 import Pomc.LogUtils (selectLogVerbosity)
 
 tests :: TestTree
 tests = testGroup "ProbModelChecking.hs Qualitative Tests" $
   [ testGroup "ProbModelChecking.hs Qualitative Tests OVI" $
-    map (\t -> t $ OVI GS)
+    map (\t -> t $ OVI GS defaultEps)
       [ biasedRandomWalkTests
       , nonTerminatingTests
       , maybeTerminatingTests
       , loopySamplingTests
       ]
   , testGroup "ProbModelChecking.hs Qualitative Tests SMTWithHints" $
-    map (\t -> t $ SMTWithHints GS)
+    map (\t -> t $ SMTWithHints GS defaultEps)
       [ biasedRandomWalkTests
       , nonTerminatingTests
       , maybeTerminatingTests
       , loopySamplingTests
       ]
   , testGroup "ProbModelChecking.hs Qualitative Tests ExactSMTWithHints" $
-    map (\t -> t $ ExactSMTWithHints GS)
+    map (\t -> t $ ExactSMTWithHints GS defaultEps)
       [ symmetricRandomWalkTests
       , symmetricRandomWalk2Tests
       , biasedRandomWalkTests

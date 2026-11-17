@@ -136,7 +136,7 @@ quantitativeModelCheck delta phi phiInitials suppGraph pendVector lbPendProbs ub
       (\gNode -> encode
           gWeightGlobals (GR.sIdGen (grGlobals gGlobals)) freezedSuppStarts freezedSuppEnds delta
           (newlMap, newuMap) suppGraph freezedGGraph (prec delta) isInH gNode
-          lbPendProbs ubPendProbs sIdMap (useNewton solv)
+          lbPendProbs ubPendProbs sIdMap solv
       ) (V.filter isInH freezedGGraph)
 
     logInfoN "Encoding conditions (2a) from [Etessami and Yannakakis, TOCL 2012,Lemmas 34 and 35]"
@@ -224,10 +224,10 @@ encode :: (MonadZ3 z3, MonadFail z3, MonadLogger z3, Ord pstate, Hashable pstate
   -> Vector Prob
   -> Vector Prob
   -> StrictMap.Map pstate Int
-  -> Bool
+  -> Pomc.Prob.ProbUtils.Solver
   -> z3 [AST]
 encode gwGlobals sIdGen suppStarts supports delta (lTypVarMap, uTypVarMap) 
-  suppGraph gGraph precFun isInH gNode pendProbsLB pendProbsUB sIdMap useNewton =
+  suppGraph gGraph precFun isInH gNode pendProbsLB pendProbsUB sIdMap solv =
   let gn = suppGraph V.! graphNode gNode
       (q,g) = semiconf gn
       qLabel = getLabel q
@@ -236,7 +236,7 @@ encode gwGlobals sIdGen suppStarts supports delta (lTypVarMap, uTypVarMap)
         -- this case includes the initial push
         | isNothing g || precRel == Just Yield =
             encodePush gwGlobals sIdGen suppStarts supports delta (lTypVarMap, uTypVarMap) suppGraph
-              gGraph isInH gNode gn pendProbsLB pendProbsUB sIdMap useNewton
+              gGraph isInH gNode gn pendProbsLB pendProbsUB sIdMap solv
 
         | precRel == Just Equal =
             encodeShift (lTypVarMap, uTypVarMap) gGraph isInH gNode pendProbsLB pendProbsUB
@@ -260,10 +260,10 @@ encodePush :: (MonadZ3 z3, MonadFail z3, MonadLogger z3, Ord pstate, Hashable ps
   -> Vector Prob
   -> Vector Prob
   -> StrictMap.Map pstate Int
-  -> Bool
+  -> Pomc.Prob.ProbUtils.Solver
   -> z3 [AST]
 encodePush gwGlobals sIdGen suppStarts supports delta (lTypVarMap, uTypVarMap) 
-  suppGraph gGraph isInH g gn pendProbsLB pendProbsUB sIdMap useNewton =
+  suppGraph gGraph isInH g gn pendProbsLB pendProbsUB sIdMap solv =
   let edgesInH = Set.toList . Set.filter (isInH . (gGraph V.!). toG) . edges $ g
       pushEnc e = do
         let toIdx = toG e
@@ -322,7 +322,7 @@ encodePush gwGlobals sIdGen suppStarts supports delta (lTypVarMap, uTypVarMap)
             encodeSupportTrans = do
               logInfoN $ "encountered a support transition - launching call to inner computation of fraction f from H node "
                 ++ show (gId g) ++ " to H node " ++ show toIdx
-              (lW, uW) <- GW.weightQuerySCC gwGlobals sIdGen cDelta suppStarts supports leftContext rightContext useNewton
+              (lW, uW) <- GW.weightQuerySCC gwGlobals sIdGen cDelta suppStarts supports leftContext rightContext solv
               lT <- encodeTransition lW pendPDestGnLB pendPGnUB tolVar
               uT <- encodeTransition uW pendPDestGnUB pendPGnLB touVar
               return [(lT, uT)]

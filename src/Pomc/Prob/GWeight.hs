@@ -12,7 +12,7 @@ module Pomc.Prob.GWeight ( Delta(..)
                          , weightQuerySCC
                          ) where
 
-import Pomc.Prob.ProbUtils (Prob, Stats(..), defaultEps, defaultNewtonEps, defaultMaxIters)
+import Pomc.Prob.ProbUtils (Prob, Stats(..), defaultNewtonEps, defaultMaxIters, Solver, epsilon, useNewton)
 import Pomc.Prob.FixPoint
 import Pomc.Prob.ProbEncoding (ProBitencoding)
 import Pomc.Prob.RightContexts(RightContexts, computeRightContexts)
@@ -105,9 +105,9 @@ weightQuerySCC :: (MonadIO m, MonadLogger m, SatState state, Eq state, Hashable 
   -> Vector (Vector (StateId state))
   -> state -- current state
   -> state -- target state
-  -> Bool
+  -> Solver
   -> m (Prob, Prob)
-weightQuerySCC globals sIdGen delta suppStarts suppEnds current target useNewton = do
+weightQuerySCC globals sIdGen delta suppStarts suppEnds current target solv = do
   q <- liftSTtoIO $ wrapState sIdGen current
   targetState <- liftSTtoIO $ wrapState sIdGen target
   let semiconf = (q, Nothing)
@@ -118,13 +118,13 @@ weightQuerySCC globals sIdGen delta suppStarts suppEnds current target useNewton
   (lb, ub) <- case maybeSemiconfId of
     Just _ -> do
       -- directly reading the result
-      liftIO $ approx defaultEps <$> retrieveValue globals sIdGen delta q targetId
+      liftIO $ approx (epsilon solv) <$> retrieveValue globals sIdGen delta q targetId
     Nothing -> do
       newId <- liftIO $ freshIOPosId (idSeq globals)
       liftIO $ HT.insert (graphMap globals) decodedSemiconf newId
       -- encoding the whole support
-      _ <- dfs globals sIdGen delta suppStarts suppEnds semiconf newId useNewton
-      liftIO $ approx defaultEps <$> retrieveValue globals sIdGen delta q targetId
+      _ <- dfs globals sIdGen delta suppStarts suppEnds semiconf newId solv
+      liftIO $ approx (epsilon solv) <$> retrieveValue globals sIdGen delta q targetId
 
   let truncatedLB = min 1 lb
       truncatedUB = min 1 ub
@@ -195,9 +195,9 @@ dfs :: (MonadIO m, MonadLogger m, SatState state, Eq state, Hashable state, Show
   -> Vector (Vector (StateId state))
   -> (StateId state, Stack state) -- current semiconf
   -> Int
-  -> Bool
+  -> Solver
   -> m RightContexts
-dfs globals sIdGen delta suppStarts suppEnds (q,g) scId_ useNewton =
+dfs globals sIdGen delta suppStarts suppEnds (q,g) scId_ solv =
   let qState = getState q
       qProps = getStateProps (bitenc delta) qState
       precRel = (prec delta) (fst . fromJust $ g) qProps
@@ -235,7 +235,7 @@ dfs globals sIdGen delta suppStarts suppEnds (q,g) scId_ useNewton =
                 return IntSet.empty 
               else do
               rightContexts <- IntSet.unions <$> V.mapM follow (V.zip suppSemiconfs suppSCIds)
-              createComponent globals scId_ useNewton rightContexts
+              createComponent globals scId_ solv rightContexts
 
         | precRel == Just Equal = do
             --unless ((consistentFilter delta) qState) $ error "inconsistent state in a shift"
@@ -250,14 +250,14 @@ dfs globals sIdGen delta suppStarts suppEnds (q,g) scId_ useNewton =
             liftIO $ addtoPath globals (scId_, shiftInfo)
             -- explore shift transitions
             rightContexts <- IntSet.unions <$> V.mapM follow (V.zip shiftSemiconfs nSCIds)
-            createComponent globals scId_ useNewton rightContexts
+            createComponent globals scId_ solv rightContexts
 
         | precRel == Just Take = liftIO $ encodePopAndSolveSCC (q,g) scId_ globals sIdGen delta suppStarts
         | otherwise = error "unreachable error"
 
       cases nextSemiconf nSCId iVal
         | (iVal == 0) = do
-            cntxs <- dfs globals sIdGen delta suppStarts suppEnds nextSemiconf nSCId useNewton
+            cntxs <- dfs globals sIdGen delta suppStarts suppEnds nextSemiconf nSCId solv
             updatedIVal <- liftIO $ fromJust <$> HT.lookup (iVector globals) nSCId
             -- small performance optimization to avoid unions between overlapping sets
             if updatedIVal > 0 then return IntSet.empty else return cntxs
@@ -273,10 +273,10 @@ dfs globals sIdGen delta suppStarts suppEnds (q,g) scId_ useNewton =
 createComponent :: (MonadIO m, MonadLogger m)
   => GWeightGlobals
   -> Int
-  -> Bool
+  -> Solver
   -> IntSet
   -> m IntSet
-createComponent globals scId_ useNewton rightCnxts = do
+createComponent globals scId_ solv rightCnxts = do
   topB <- liftIO . IOGS.peek $ bStack globals
   iVal <- liftIO $ fromJust <$> HT.lookup (iVector globals) scId_
   let defaultEqs = IntMap.fromSet (const (PopEq (0,0))) rightCnxts
@@ -297,19 +297,19 @@ createComponent globals scId_ useNewton rightCnxts = do
         return poppedSemiconfs
       cases
         | iVal /= topB = addFixpEqs (eqMap globals) scId_ defaultEqs >> return rightCnxts
-        | otherwise = createC >>= encode globals useNewton scId_ rightCnxts
+        | otherwise = createC >>= encode globals solv scId_ rightCnxts
   cases
 
 -- encoding helpers
 -- encode = generate the equation system for variable pairs (scId_, rightContext) to determine fraction f
 encode :: (MonadIO m, MonadLogger m)
   => GWeightGlobals
-  -> Bool
+  -> Solver
   -> Int
   -> IntSet
   -> [(Int, SuccInfo)]
   -> m IntSet
-encode globals useNewton scId_ rightCnxts poppedSemiconfs =
+encode globals solv scId_ rightCnxts poppedSemiconfs =
   let defaultEqs = IntMap.fromSet (const (PopEq (0,0)))
       semiconfs = sort poppedSemiconfs
       semiconfsVec = V.fromList semiconfs
@@ -328,7 +328,7 @@ encode globals useNewton scId_ rightCnxts poppedSemiconfs =
             liftIO $ addFixpEqs (eqMap globals) id_ (defaultEqs rightCnxts)
             enc succInfo id_ rightCnxts
             let liveVars = Set.fromAscList . map (id_, ) . IntSet.toAscList $ rightCnxts
-            solveEqSystem (eqMap globals) liveVars (evalEq (stats globals)) (solveSCCQuery globals useNewton)
+            solveEqSystem (eqMap globals) liveVars (evalEq (stats globals)) (solveSCCQuery globals solv)
                 
           return rightCnxts
         | otherwise = do
@@ -351,7 +351,7 @@ encode globals useNewton scId_ rightCnxts poppedSemiconfs =
             unless (IntSet.null rcs) $ enc succInfo id_ rcs
 
           logDebugN "Solving the equation system..."
-          solveEqSystem (eqMap globals) liveVars (evalEq (stats globals)) (solveSCCQuery globals useNewton)
+          solveEqSystem (eqMap globals) liveVars (evalEq (stats globals)) (solveSCCQuery globals solv)
           return (rcsMap 0)
   in do
     logDebugN $ "SCC Members: " ++ show sccMembers
@@ -478,9 +478,10 @@ evalEq stats eqMap_ varKey (PushEq l) = liftIO $ do
 
 -- solve a SCC in the equation system
 solveSCCQuery :: (MonadIO m, MonadLogger m)
-  => GWeightGlobals -> Bool -> [VarKey] -> m ()
-solveSCCQuery globals newton varKeys = do
-  let eqs = eqMap globals
+  => GWeightGlobals -> Solver -> [VarKey] -> m ()
+solveSCCQuery globals solv varKeys = do
+  let eps = epsilon solv
+      eqs = eqMap globals
       -- careful, varKeys might be duplicated in case of self-dependencies
       lVars = Set.fromList varKeys
       varSize = Set.size lVars
@@ -492,18 +493,18 @@ solveSCCQuery globals newton varKeys = do
   startWeights <- startTimer
   -- compute lower bounds
   let approxVec
-        | newton = approxFixpNewtonWithHint eqsLower defaultNewtonEps defaultEps defaultMaxIters defaultMaxIters zeroVec
-        | otherwise = approxFixpFrom eqsLower defaultEps defaultMaxIters zeroVec
+        | useNewton solv = approxFixpNewtonWithHint eqsLower defaultNewtonEps eps defaultMaxIters defaultMaxIters zeroVec
+        | otherwise = approxFixpFrom eqsLower eps defaultMaxIters zeroVec
 
   logDebugN $ "Lower Approx: " ++ show approxVec
 
   -- compute upper bounds
   logDebugN "Running OVI to compute an upper bound to the equation system."
-  oviRes <- ovi (defaultOVISettingsDouble defaultEps) eqsUpper approxVec
+  oviRes <- ovi (defaultOVISettingsDouble eps) eqsUpper approxVec
   unless (oviSuccess oviRes) $ error "OVI was not successful in computing an upper bounds on the fraction f."
 
   -- certify the result and compute some statistics
-  rCertified <- oviToRational (defaultOVISettingsDouble defaultEps) eqsUpper oviRes
+  rCertified <- oviToRational (defaultOVISettingsDouble eps) eqsUpper oviRes
   unless rCertified $ error "Cannot deduce a rational certificate for this SCC when computing fraction f."
   logDebugN $ "Computed upper bounds: " ++ show (oviUpperBound oviRes)
   tWeights <- stopTimer startWeights (oviSuccess oviRes)

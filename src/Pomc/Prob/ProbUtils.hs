@@ -32,6 +32,7 @@ module Pomc.Prob.ProbUtils ( Prob
                            , useZ3
                            , useNewton
                            , isNewton
+                           , epsilon
                            , defaultEps
                            , defaultNewtonEps
                            , defaultREps
@@ -158,27 +159,32 @@ data Update = GS | Newton
   deriving (Eq, Show)
 
 -- SMTWithHints: compute a lower approximation of the solution and use it as a hint for the SMT solver
-data Solver = SMTWithHints Update | ExactSMTWithHints Update | OVI Update 
+data Solver = SMTWithHints Update Double | ExactSMTWithHints Update Double | OVI Update Double
   deriving (Eq, Show)
 
 exactComputation :: Solver -> Bool 
-exactComputation (ExactSMTWithHints _) = True 
+exactComputation (ExactSMTWithHints _ _) = True 
 exactComputation _ = False
 
 useZ3 :: Solver -> Bool 
-useZ3 (SMTWithHints _) = True 
-useZ3 (ExactSMTWithHints _) = True
+useZ3 (SMTWithHints _ _) = True 
+useZ3 (ExactSMTWithHints _ _) = True
 useZ3 _ = False
 
 useNewton :: Solver -> Bool 
-useNewton (SMTWithHints Newton) = True 
-useNewton (ExactSMTWithHints Newton) = True
-useNewton (OVI Newton) = True 
+useNewton (SMTWithHints Newton _) = True 
+useNewton (ExactSMTWithHints Newton _) = True
+useNewton (OVI Newton _) = True 
 useNewton _ = False 
 
 isNewton :: Update -> Bool 
 isNewton Newton = True 
-isNewton _ = False 
+isNewton _ = False
+
+epsilon :: Solver -> Double
+epsilon (SMTWithHints _ e) = e 
+epsilon (ExactSMTWithHints _ e) = e
+epsilon (OVI _ e) = e 
 
 defaultEps :: Double
 defaultEps = 0x1p-26 -- ~ 1e-8

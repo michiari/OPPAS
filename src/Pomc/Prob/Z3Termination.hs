@@ -58,7 +58,6 @@ data TermGlobals = TermGlobals
   , termVarMap :: TermVarMap
   , rewVarMap :: RewVarMap
   , eqMap :: EqMap (Double, Double)
-  , eps :: IORef Double
   , stats :: STRef RealWorld Stats
   }
 
@@ -71,7 +70,6 @@ newTermGlobals len s = liftIO $ do
   newEqMap <- IOMM.emptySized len
   emptyMustReachPop <- newIORef IntSet.empty
   newRewVarMap <- HT.new
-  newEps <- newIORef defaultEps
   return TermGlobals  { sStack = newSS
                       , bStack = newBS
                       , iVector = newIVec
@@ -79,7 +77,6 @@ newTermGlobals len s = liftIO $ do
                       , termVarMap = newtermMap
                       , rewVarMap = newRewVarMap
                       , eqMap = newEqMap
-                      , eps = newEps
                       , stats = s
                       }
 
@@ -112,15 +109,14 @@ terminationQuery suppGraph query oldStats = do
   logInfoN $ "Is AST: " ++ show isPAST
 
   -- returning the computed values
-  currentEps <- liftIO $ readIORef (eps globals)
   pastIds <- liftIO $ readIORef (pastSemiconfs globals)
-  let actualEps = min defaultEps $ currentEps * currentEps
+  let eps = epsilon $ solver query
       intervalLogic (_, ub) Lt p = ub < p
       intervalLogic (lb, _) Gt p = lb > p
       intervalLogic (_, ub) Le p = ub <= p
       intervalLogic (lb, _) Ge p = lb >= p
-      approxL (v, _) = approxRational (v - actualEps) actualEps
-      approxU (_, v) = approxRational (v + actualEps) actualEps
+      approxL (v, _) = approxRational (v - eps) eps
+      approxU (_, v) = approxRational (v + eps) eps
       unlessPAST f = if isPAST then return (1,1) else f
       -- results computed with Z3
       readResults (ApproxAllQuery _) True = do
@@ -130,10 +126,10 @@ terminationQuery suppGraph query oldStats = do
         let lowerProbRationalMap = V.map (sum . map approxL) probMap
         return (ApproxAllResult (lowerProbRationalMap, rUBVec))
       readResults (ApproxSingleQuery _) True = do
-        (lb, ub) <- unlessPAST $ retrieveInitialPush actualEps (eqMap globals) gn
+        (lb, ub) <- unlessPAST $ retrieveInitialPush eps (eqMap globals) gn
         return (ApproxSingleResult (lb, ub))
       readResults (CompQuery comp bound _) True = do
-        (lb, ub) <- unlessPAST $ retrieveInitialPush actualEps (eqMap globals) gn
+        (lb, ub) <- unlessPAST $ retrieveInitialPush eps (eqMap globals) gn
         return $ toTermResult $ intervalLogic (lb,ub) comp bound
       -- results computed with OVI
       readResults (ApproxAllQuery _) False = liftIO $ do
@@ -142,10 +138,10 @@ terminationQuery suppGraph query oldStats = do
         let lowerProbRationalMap = V.map (sum . map approxL) probMap
         return (ApproxAllResult (lowerProbRationalMap, upperProbRationalMap))
       readResults (ApproxSingleQuery _) False = do
-        (lb, ub) <- unlessPAST $ retrieveInitialPush actualEps (eqMap globals) gn
+        (lb, ub) <- unlessPAST $ retrieveInitialPush eps (eqMap globals) gn
         return (ApproxSingleResult (lb, ub))
       readResults (CompQuery comp bound _) False = do
-        (lb, ub) <- unlessPAST $ retrieveInitialPush actualEps (eqMap globals) gn
+        (lb, ub) <- unlessPAST $ retrieveInitialPush eps (eqMap globals) gn
         return $ toTermResult $ intervalLogic (lb,ub) comp bound
 
   (,pastIds) <$> readResults query (useZ3 $ solver query)
@@ -481,7 +477,7 @@ updateUpperBoundsOVI :: (MonadZ3 z3, MonadFail z3, MonadLogger z3)
 updateUpperBoundsOVI globals eps eqsUpper lVars lowerBound = do
   let eqs = eqMap globals
   logDebugN "Using OVI to update upper bounds..."
-  oviRes <- ovi (defaultOVISettingsDouble defaultEps) eqsUpper lowerBound
+  oviRes <- ovi (defaultOVISettingsDouble eps) eqsUpper lowerBound
   rCertified <- oviToRational (defaultOVISettingsDouble eps) eqsUpper oviRes
   unless rCertified $ error "Cannot deduce a rational certificate for this semiconf."
   unless (oviSuccess oviRes) $ error "OVI was not successful in computing an upper bound on the termination probabilities."
@@ -495,11 +491,12 @@ updateUpperBoundsOVI globals eps eqsUpper lVars lowerBound = do
 
 updateUpperBoundsZ3 :: (MonadZ3 z3, MonadFail z3, MonadLogger z3)
   => TermGlobals
+  -> Double
   -> LEqSys Double
   -> Vector VarKey
   -> ProbVec Double
   -> z3 (ProbVec Double)
-updateUpperBoundsZ3 globals eqsUpper lVars lowerBound =
+updateUpperBoundsZ3 globals eps eqsUpper lVars lowerBound =
   let eqs = eqMap globals
       tVarMap = termVarMap globals
       doAssert approxFracVec currentEps = do
@@ -520,20 +517,18 @@ updateUpperBoundsZ3 globals eqsUpper lVars lowerBound =
           (Unsat, _)
             | currentEps <= 1 -> do
                 logDebugN $ "Unsat, backtrack. Current eps: " ++ show currentEps
-                liftIO (writeIORef (eps globals) (2 * currentEps))
                 pop 1 --backtrack
                 doAssert approxFracVec (2 * currentEps) -- backtrack one point and restart
             | otherwise -> error "Maximum tolerance reached when solving SCC."
           _ -> error "Undefinite result when checking an SCC."
   in do
-    currentEps <- liftIO $ readIORef (eps globals)
     logDebugN "Approximating via Value Iteration + z3"
     -- we don't allow using Newton here, as it is definitively worthless.
     -- we are recomputing a lower bound using upper bounds as coefficients (that is why snd)
     let approxVec = approxFixpFrom eqsUpper defaultEps defaultMaxIters lowerBound
     let approxFracVec = toRationalProbVec defaultEps approxVec
     logDebugN "Asserting lower and upper bounds computed from value iteration, and getting a model"
-    model <- doAssert (V.zip lVars approxFracVec) (min defaultEps currentEps)
+    model <- doAssert (V.zip lVars approxFracVec) eps
 
     -- actual updates
     V.mapM (\(varKey, l) -> do
@@ -578,13 +573,12 @@ evalEq stats tVarMap z3 eqMap_ varKey (PushEq l) = do
 
 -- solve a SCC in the equation system
 solveSCCQuery :: (MonadZ3 z3, MonadFail z3, MonadLogger z3)
-  => TermGlobals
-  -> Solver
-  -> [VarKey]
-  -> z3 ()
+  => TermGlobals -> Solver -> [VarKey] -> z3 ()
 solveSCCQuery globals solv vars = do
-  -- careful, vars might have duplicated variables in case of self-dependencies
-  let lVars = Set.fromList vars
+  let eps = epsilon solv
+      newtonEps = max defaultNewtonEps eps
+      -- careful, vars might have duplicated variables in case of self-dependencies
+      lVars = Set.fromList vars
       varSize = Set.size lVars
       zeroVec = V.replicate varSize 0
 
@@ -593,11 +587,11 @@ solveSCCQuery globals solv vars = do
   startWeights <- startTimer
   let lowerBound
         -- apply Newton's method only up to a greater eps, Newton's methods becomes instable when dealing with very small deltas
-        | useNewton solv = approxFixpNewtonWithHint eqsLower defaultNewtonEps defaultEps defaultMaxIters defaultMaxIters zeroVec
-        | otherwise = approxFixpFrom eqsLower defaultEps defaultMaxIters zeroVec
+        | useNewton solv = approxFixpNewtonWithHint eqsLower newtonEps eps defaultMaxIters defaultMaxIters zeroVec
+        | otherwise = approxFixpFrom eqsLower eps defaultMaxIters zeroVec
       cases
-        | useZ3 solv = updateUpperBoundsZ3 globals eqsUpper (V.fromList $ Set.elems lVars) lowerBound
-        | otherwise =  updateUpperBoundsOVI globals defaultEps eqsUpper (V.fromList $ Set.elems lVars) lowerBound
+        | useZ3 solv = updateUpperBoundsZ3 globals eps eqsUpper (V.fromList $ Set.elems lVars) lowerBound
+        | otherwise =  updateUpperBoundsOVI globals eps eqsUpper (V.fromList $ Set.elems lVars) lowerBound
 
   upperBound <- cases
 
@@ -624,7 +618,8 @@ checkPAST :: (MonadZ3 z3, MonadFail z3, MonadLogger z3)
 checkPAST globals sccMembers suppGraph dPAST solv = do
   let eqs = eqMap globals
       rVarMap = rewVarMap globals
-      augEps = 1000 * defaultEps
+      eps = epsilon solv
+      augEps = 1000 * eps
       customSum popEqsMap = getSum $ foldMap' (\(PopEq (_,ub)) -> Sum ub) (IntMap.elems popEqsMap)
 
   -- termination probabilities of each semiconfiguration

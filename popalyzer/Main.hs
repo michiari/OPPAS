@@ -10,7 +10,7 @@
 module Main (main) where
 
 import Pomc.Prob.POPAlyzer (infer)
-import Pomc.Prob.ProbUtils (Stats(..), Update(..), Distr(..))
+import Pomc.Prob.ProbUtils (Solver(..), Stats(..), Update(..), Distr(..))
 import Pomc.Parse.Parser (checkRequestP, spaceP, CheckRequest(..), preprocess)
 import Pomc.TimeUtils (timeAction, timeToString)
 import Pomc.LogUtils (LogLevel(..), selectLogVerbosity)
@@ -49,9 +49,9 @@ popalyzerArgs = POPAlyzerArgs
 main :: IO ()
 main = do
   pargs <- cmdArgs popalyzerArgs
-  let updateStrategy
-        | gauss pargs = GS
-        | otherwise = Newton
+  let solv
+        | gauss pargs = OVI GS (eps pargs)
+        | otherwise = OVI Newton (eps pargs)
       fname = fileName pargs
       printStats = stats pargs
       logLevel = case verbose pargs of
@@ -66,19 +66,19 @@ main = do
             Left  errBundle -> die (errorBundlePretty errBundle)
             Right creq      -> return creq
   totalTime <- case creq of
-    ProbInferenceRequest prog expr -> runProbInference printStats logLevel updateStrategy prog (eps pargs) expr
+    ProbInferenceRequest prog expr -> runProbInference printStats logLevel solv prog expr
     _ -> die "POPAlyzer only supports inference queries. Please use the pomc or the popacheck executables for model checking."
 
   putStrLn ("\nTotal elapsed time: " ++ timeToString totalTime ++
             " (" ++ showEFloat (Just 4) totalTime " s)")
   where
-    runProbInference printStats logLevel strat prog eps expr = do
+    runProbInference printStats logLevel solv prog expr = do
       putStrLn "Posterior Distribution Inference Query"
-      when printStats $ putStrLn $ "Query: InferenceQuery " ++ (show strat)
+      when printStats $ putStrLn $ "Query: InferenceQuery " ++ (show solv)
       putStr "Result: "
       ((tres@(Distr lb, Distr ub), stats, _), time) <- timeAction fst3
         $ selectLogVerbosity logLevel
-        $ infer strat prog eps expr
+        $ infer prog solv expr
       if printStats
         then do
         putStr $ show tres
