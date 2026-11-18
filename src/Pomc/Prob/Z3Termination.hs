@@ -38,7 +38,7 @@ import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad (foldM, unless, when, forM_, forM)
 import Control.Monad.ST (RealWorld)
 import Pomc.Z3T (liftSTtoIO)
-import Data.Maybe(fromJust, mapMaybe, isNothing)
+import Data.Maybe(fromJust, mapMaybe)
 import Data.Ratio (approxRational)
 import Z3.Monad hiding (Solver)
 import Data.IORef (IORef, newIORef, modifyIORef', readIORef, writeIORef)
@@ -205,12 +205,12 @@ dfs globals suppGraph gn solv =
         -- explore push transitions 
         (pushRightContexts, pushdPAST) <- V.unzip <$> V.mapM follow (V.fromList . IntMap.keys $ pushMap)
         -- explore support transitions 
-        if isNothing (snd . semiconf $ gn)
-          then return (IntSet.unions pushRightContexts, V.and pushdPAST)
-          else do 
-          (suppRightContexts, suppdPAST) <- V.unzip <$> V.mapM follow (V.fromList . IntSet.elems $ suppSet)
-          createComponent globals suppGraph gnId_ solv
-              (IntSet.unions suppRightContexts, V.and suppdPAST && V.and pushdPAST)
+        (suppRightContexts, suppdPAST) <- V.unzip <$> V.mapM follow (V.fromList . IntSet.elems $ suppSet)
+        if gnId gn == 0
+          then do
+            return (IntSet.unions pushRightContexts, V.and pushdPAST)
+          else createComponent globals suppGraph gnId_ solv
+            (IntSet.unions suppRightContexts, V.and suppdPAST && V.and pushdPAST)
 
       cases nextGn iVal
         | (iVal == 0) = do
@@ -250,8 +250,7 @@ createComponent globals suppGraph gnId_ solv (rightCnxts, dPAST) = do
                     , largestSCCSuppGraphSize = acc1
                     } 
             -> s{ sccCountSuppGraph = acc + 1
-                -- careful: ensure that poppedSemiconfs are not duplicated
-                , largestSCCSuppGraphSize = max acc1 (length poppedSemiconfs)
+                , largestSCCSuppGraphSize = acc1 + length poppedSemiconfs
                 }
         return poppedSemiconfs
       cases
