@@ -209,7 +209,8 @@ createComponent globals solv suppGraph gnId_ rightCnxts = do
                     , largestSCCSuppGraphSize = acc1
                     } 
             -> s{ sccCountSuppGraph = acc + 1
-                , largestSCCSuppGraphSize = acc1 + length poppedSemiconfs
+                -- careful: ensure that poppedSemiconfs are not duplicated
+                , largestSCCSuppGraphSizeQuant = max acc1 (length poppedSemiconfs)
                 }
         return poppedSemiconfs
       cases
