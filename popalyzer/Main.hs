@@ -99,7 +99,7 @@ main = do
           , "\nEquations solved for termination probabilities: ", show $ equationsCount stats
           , "\nNon-trivial equations solved for termination probabilities: ", show $ nonTrivialEquationsCount stats
           , "\nSCC count in the equation system for termination probabilities: ", show $ sccCountEqSys stats
-          , "\nSize of the largest SCC in the equation system for termination probabilities: ", show $ largestSCCSuppGraphSize stats
+          , "\nSize of the largest SCC in the equation system for termination probabilities: ", show $ largestSCCEqSysSize stats
           ]
         else putStrLn $ concat
              [ "\n Lower bounds Distribution:"
