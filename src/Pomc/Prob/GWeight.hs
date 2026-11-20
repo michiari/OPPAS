@@ -49,7 +49,7 @@ import GHC.IO (stToIO)
 import Data.IORef (IORef, newIORef)
 import Data.Ratio (approxRational, (%))
 import Control.Applicative ((<|>))
-import Data.List (sort)
+import Data.List (sortOn)
 
 -- a type for the delta relation, parametric with respect to the type of the state
 data Delta state = Delta
@@ -65,7 +65,11 @@ data Delta state = Delta
 -- either info for a push, or info for a shift
 -- in the push info, tuples are pais (suppStateId_, suppSemiconfId_), 
 -- where suppStateId_ is the id of the state in the suppSemiconf
-type SuccInfo = Either (Vector (Int, Int), IntMap Prob) (IntMap Prob)
+data SuccInfo = Push (Vector (Int, Int)) (IntMap Prob) | Shift (IntMap Prob) | Duplicate
+
+isDuplicate :: SuccInfo -> Bool
+isDuplicate Duplicate = True
+isDuplicate _ = False
 
 -- global variables for computing weights of support edges in graph H 
 -- with respect to the prob. of the support transition in the support chain
@@ -222,7 +226,7 @@ dfs globals sIdGen delta suppStarts suppEnds (q,g) scId_ solv =
 
             let suppSet = V.zip suppStatesIds suppSCIds
                 pushMap = IntMap.fromListWith (+) (zip (V.toList pushSCIds) probs)
-                transInfo = Left (suppSet, pushMap)
+                transInfo = Push suppSet pushMap
             -- add current semiconf to the path 
             liftIO $ addtoPath globals (scId_, transInfo)
             -- explore push transitions
@@ -244,7 +248,7 @@ dfs globals sIdGen delta suppStarts suppEnds (q,g) scId_ solv =
             shiftStates <- liftIO $ liftSTtoIO $ wrapStates sIdGen sStates
             let shiftSemiconfs = V.map (, Just (qProps, snd . fromJust $ g)) shiftStates
             nSCIds <- liftIO $ V.mapM (lookupSemiconf globals) shiftSemiconfs
-            let shiftInfo = Right (IntMap.fromListWith (+) (zip (V.toList nSCIds) probs))
+            let shiftInfo = Shift (IntMap.fromListWith (+) (zip (V.toList nSCIds) probs))
             
             -- add current semiconf to the path
             liftIO $ addtoPath globals (scId_, shiftInfo)
@@ -263,7 +267,8 @@ dfs globals sIdGen delta suppStarts suppEnds (q,g) scId_ solv =
             if updatedIVal > 0 then return IntSet.empty else return cntxs
 
         | (iVal < 0)  = liftIO $ retrieveRightContexts (eqMap globals) nSCId
-        | (iVal > 0)  = liftIO $ merge globals nSCId >> return IntSet.empty
+        -- push anyway to identify self-cycles
+        | (iVal > 0)  = liftIO $ IOGS.push (sStack globals) (nSCId, Duplicate) >> merge globals nSCId >> return IntSet.empty
         | otherwise = error "unreachable error"
       follow (nextSemiconf, nSCId) = do
         iVal <- liftIO $ lookupIValue globals nSCId
@@ -285,7 +290,8 @@ createComponent globals scId_ solv rightCnxts = do
         IOGS.pop_ (bStack globals)
         sSize <- IOGS.size $ sStack globals
         poppedSemiconfs <- IOGS.multPop (sStack globals) (sSize - iVal + 1) -- the last one is the current scId_
-        forM_ (map fst poppedSemiconfs) $ \id_ -> HT.insert (iVector globals) id_ (-1)
+        let uniqueScIds = map fst . filter (not . isDuplicate . snd) $ poppedSemiconfs
+        forM_ uniqueScIds $ \id_ -> HT.insert (iVector globals) id_ (-1)
         -- update statistics
         liftSTtoIO $ modifySTRef' (stats globals) $
             \s@Stats{ sccCountSuppGraphQuant = acc
@@ -293,7 +299,7 @@ createComponent globals scId_ solv rightCnxts = do
                     } 
             -> s{ sccCountSuppGraphQuant = acc + 1
                 -- careful: ensure that poppedSemiconfs are not duplicated
-                , largestSCCSuppGraphSizeQuant = max acc1 (length poppedSemiconfs)
+                , largestSCCSuppGraphSizeQuant = max acc1 (length uniqueScIds)
                 }
         return poppedSemiconfs
       cases
@@ -312,25 +318,21 @@ encode :: (MonadIO m, MonadLogger m)
   -> m IntSet
 encode globals solv scId_ rightCnxts poppedSemiconfs =
   let defaultEqs = IntMap.fromSet (const (PopEq (0,0)))
-      semiconfs = sort poppedSemiconfs
-      semiconfsVec = V.fromList semiconfs
-      sccMembers = Set.fromAscList $ map fst semiconfs
+      uniqueSemiconfs = sortOn fst . filter (not . isDuplicate . snd) $ poppedSemiconfs
+      semiconfsVec = V.fromList uniqueSemiconfs
+      sccMembers = Set.fromAscList $ map fst uniqueSemiconfs
       remapSucc succ = Set.lookupIndex succ sccMembers
-      remapSuccInfo (Left (v, _)) = V.toList . V.mapMaybe (remapSucc . snd) $ v
-      remapSuccInfo (Right m) = mapMaybe remapSucc . IntMap.keys $ m
-      enc (Left (suppInfo, pushInfo)) = encodePush globals (suppInfo, pushInfo)
-      enc (Right shiftInfo) = encodeShift globals shiftInfo
+      remapSuccInfo (Push v _) = V.toList . V.mapMaybe (remapSucc . snd) $ v
+      remapSuccInfo (Shift m) = mapMaybe remapSucc . IntMap.keys $ m
+      enc (Push suppInfo pushInfo) = encodePush globals suppInfo pushInfo
+      enc (Shift shiftInfo) = encodeShift globals shiftInfo
+      encSolve (Push suppSet pushMap) = encodeSolvePush globals suppSet pushMap
+      encSolve (Shift shiftMap) = encodeSolveShift globals shiftMap
       cases
         -- already know right contexts
         | [(id_, succInfo)] <- poppedSemiconfs = do
           unless (IntSet.null rightCnxts) $ do
-            logDebugN "Preadding all equations to the system..."
-            -- this is needed in case of self edges
-            liftIO $ addFixpEqs (eqMap globals) id_ (defaultEqs rightCnxts)
-            enc succInfo id_ rightCnxts
-            let liveVars = Set.fromAscList . map (id_, ) . IntSet.toAscList $ rightCnxts
-            solveEqSystem (eqMap globals) liveVars (evalEq (stats globals)) (solveSCCQuery globals solv)
-                
+            encSolve succInfo id_ rightCnxts
           return rightCnxts
         | otherwise = do
           -- need to recompute right contexts
@@ -360,11 +362,12 @@ encode globals solv scId_ rightCnxts poppedSemiconfs =
 
 encodePush :: (MonadIO m, MonadLogger m)
   => GWeightGlobals
-  -> (Vector (Int,Int), IntMap Prob) -- not Varkeys
+  -> Vector (Int,Int)
+  -> IntMap Prob -- not Varkeys
   -> Int
   -> RightContexts
   -> m ()
-encodePush globals (suppInfo, pushInfo) scId_ rightCnxts = do
+encodePush globals suppInfo pushInfo scId_ rightCnxts = do
   augPushInfo <- forM (IntMap.toList pushInfo) $ \(id_, prob_) -> do
     encodedRCs <- retrieveRightContexts (eqMap globals) id_
     return (id_, prob_, encodedRCs)
@@ -388,6 +391,40 @@ encodePush globals (suppInfo, pushInfo) scId_ rightCnxts = do
     \s@Stats{equationsCountQuant = acc} -> s{equationsCountQuant = acc + IntMap.size terms}
   logDebugN $ "Encoding Push for semiconf " ++ show scId_ ++ ": " ++ show terms
 
+encodeSolvePush :: (MonadIO m, MonadLogger m)
+  => GWeightGlobals
+  -> Vector (Int,Int)
+  -> IntMap Prob -- not Varkeys
+  -> Int
+  -> RightContexts
+  -> m ()
+encodeSolvePush globals suppInfo pushInfo scId_ rightCnxts = do
+  augPushInfo <- forM (IntMap.toList pushInfo) $ \(id_, prob_) -> do
+    pushEqMap <- retrieveEquationsMap (eqMap globals) id_
+    return (id_, prob_, pushEqMap)
+  augSuppInfo <- forM suppInfo $ \(stateId_, id_) -> do
+    suppEqMap <- retrieveEquationsMap (eqMap globals) id_
+    return (stateId_, id_, suppEqMap)
+  let createTerm suppRC =
+        [(prob_, pushProbs, suppProbs) |
+            (suppStateId_, _, suppEqMap) <- V.toList augSuppInfo
+          , IntMap.member suppRC suppEqMap
+          , (_, prob_, pushEqs) <- augPushInfo
+          , (pushRC, PopEq pushProbs) <- IntMap.toList pushEqs
+          , pushRC == suppStateId_
+          , let PopEq suppProbs = suppEqMap IntMap.! suppRC
+        ]
+      terms = IntMap.fromSet (evaluateTerm . createTerm) rightCnxts
+      evaluateTerm l = PopEq $ foldl' (\(lbAcc,ubAcc) (prob_, (lb1,ub1), (lb2,ub2)) -> 
+        (fromRational prob_ * lb1 * lb2 + lbAcc, fromRational prob_ * ub1 * ub2 + ubAcc)
+        ) (0,0) l
+
+  -- add equations
+  addFixpEqs (eqMap globals) scId_ terms
+  liftSTtoIO $ modifySTRef' (stats globals) $
+    \s@Stats{equationsCountQuant = acc} -> s{equationsCountQuant = acc + IntMap.size terms}
+  logDebugN $ "Encoding Push:" ++ show scId_ ++ " = PushEq " ++ show terms
+
 encodeShift :: (MonadIO m, MonadLogger m)
   => GWeightGlobals
   -> IntMap Prob
@@ -409,6 +446,31 @@ encodeShift globals shiftInfo scId_ rightCnxts = do
   liftIO $ liftSTtoIO $ modifySTRef' (stats globals)
     $ \s@Stats{equationsCountQuant = acc} -> s{equationsCountQuant = acc + IntMap.size terms}
   logDebugN $ "Encoding Shift for semiconf " ++ show scId_ ++ ": " ++ show terms
+
+encodeSolveShift :: (MonadIO m, MonadLogger m)
+  => GWeightGlobals
+  -> IntMap Prob
+  -> Int
+  -> RightContexts
+  -> m ()
+encodeSolveShift globals shiftInfo scId_ rightCnxts = do
+  augShiftInfo <- forM (IntMap.toList shiftInfo) $ \(id_, prob_) -> do
+    shiftEqMap <- retrieveEquationsMap (eqMap globals) id_
+    return (id_, prob_, shiftEqMap)
+  let createTerm rc = [ (prob_, shiftProbs) |
+                          (_, prob_, shiftEqMap) <- augShiftInfo
+                        ,  IntMap.member rc shiftEqMap,
+                        let PopEq shiftProbs = shiftEqMap IntMap.! rc
+                      ]
+      terms = IntMap.fromSet (evaluateTerm . createTerm) rightCnxts
+      evaluateTerm l = PopEq $ foldl' (\(lbAcc,ubAcc) (prob_, (lb1,ub1)) -> 
+        (fromRational prob_ * lb1 + lbAcc, fromRational prob_ * ub1 + ubAcc)
+        ) (0,0) l
+  -- add equations
+  addFixpEqs (eqMap globals) scId_ terms
+  liftIO $ liftSTtoIO $ modifySTRef' (stats globals)
+    $ \s@Stats{equationsCountQuant = acc} -> s{equationsCountQuant = acc + IntMap.size terms}
+  logDebugN $ "Encoding Shift " ++ show scId_ ++ ": " ++ show terms
 
 encodePopAndSolveSCC :: (SatState state, Eq state, Hashable state, Show state)
   => (StateId state, Stack state) -- current semiconf
