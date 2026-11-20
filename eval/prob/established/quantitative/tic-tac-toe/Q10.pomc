@@ -1,5 +1,5 @@
 probabilistic query: quantitative;
-formula = ~ (XNu ([|choice=6]));
+formula = ~ (XNu ([|choice == 2u4]));
 
 program:
 /*  
@@ -7,8 +7,8 @@ program:
   1 = O (player 1)
   2 = X (player 2)
   Initial Condition: 
-  |  O  |     |     |
-  |     |     |  X  |
+  |     |  O  |     |
+  |  O  |  X  |  X  |
   |     |     |     |
   Reference: A. Stuhlmueller, N.D. Goodman, Reasoning about Reasoning by Nested Conditioning: 
   Modeling Theory of Mind with Probabilistic Programs, Cognitive Systems Research 2014.
@@ -18,11 +18,11 @@ u4 choice;
 
 main (){
   u4[9] grid;
-  grid[0] = 1;
-	grid[1] = 0;
+  grid[0] = 0;
+	grid[1] = 1;
 	grid[2] = 0;
-  grid[3] = 0;
-	grid[4] = 0;
+  grid[3] = 1;
+	grid[4] = 2;
 	grid[5] = 2;
   grid[6] = 0;
 	grid[7] = 0;
