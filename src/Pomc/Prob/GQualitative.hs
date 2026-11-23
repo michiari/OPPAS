@@ -30,7 +30,6 @@ import qualified Data.Strict.IntMap as StrictIntMap
 import qualified Data.Strict.Map as StrictMap
 import Data.IntMap(IntMap)
 import qualified Data.IntMap as IntMap
-import qualified Data.Set as Set
 import Data.IntSet(IntSet)
 import qualified Data.IntSet as IntSet
 import Data.Hashable(Hashable)
@@ -40,7 +39,7 @@ import Data.Vector(Vector, (!))
 import qualified Data.Vector as V
 import Data.Bifunctor(first)
 import Control.Monad.IO.Class (MonadIO)
-import Control.Monad (when, forM_, foldM, forM)
+import Control.Monad (when, forM_, forM)
 import Control.Monad.ST (ST, RealWorld)
 import Data.STRef (STRef, readSTRef, modifySTRef')
 import Data.Maybe (fromJust, isNothing, mapMaybe)
@@ -75,7 +74,7 @@ qualitativeModelCheck delta phi phiInitials suppGraph sIdMap pendVector stats = 
     newId <- freshPosId (idSeq gGlobals)
     BH.insert (ggraphMap gGlobals) (gnId iniGn, s) newId
     let node = GNode { gId= newId, graphNode = gnId iniGn, phiNode = s, 
-                       edges = Set.empty, iValue = 0, descSccs = IntSet.empty
+                       edges = [], iValue = 0, descSccs = IntSet.empty
                      }
     CM.insert (gGraph gGlobals) newId node
     newNode <- addtoPath gGlobals node (Internal 0 newId)
@@ -91,7 +90,7 @@ qualitativeModelCheck delta phi phiInitials suppGraph sIdMap pendVector stats = 
       newId <- freshPosId (idSeq gGlobals)
       BH.insert (ggraphMap gGlobals) (gnId iniGn, s) newId
       let node = GNode { gId= newId, graphNode = gnId iniGn, phiNode = s, 
-                         edges = Set.empty, iValue = 0, descSccs = IntSet.empty
+                         edges = [], iValue = 0, descSccs = IntSet.empty
                        }
       CM.insert (gGraph gGlobals) newId node
       newNode <- addtoPath gGlobals node (Internal 0 newId)
@@ -189,8 +188,9 @@ reachPush gGlobals delta suppGraph fromPhi isPending sIdMap gnId_ q p suppSet pu
             , (AugState (StateId _ q1 _) p1, suppSatSet) <- fSuppAugStates
             , (getState . fst . semiconf $ gn1) == q1
           ]
+        mayOverlap = not . null $ [ gn1 | (gn1, _) <- fPushGns, gn2 <- fSuppGns, gnId gn1 == gnId gn2]
     -- exploring edges
-    reachEdges gGlobals delta suppGraph fromPhi isPending sIdMap fromId fPushGnodes fSuppGnodes
+    reachEdges gGlobals delta suppGraph fromPhi isPending sIdMap fromId fPushGnodes fSuppGnodes mayOverlap
 
 reachShift :: (Ord pstate, Hashable pstate, Show pstate)
   => GGlobals s pstate -- global variables of the algorithm
@@ -213,7 +213,7 @@ reachShift gGlobals delta suppGraph fromPhi isPending sIdMap gnId_ p shiftMap =
         ]
   in do
     fromId <- fromJust <$> BH.lookup (ggraphMap gGlobals) (gnId_, p)
-    reachEdges gGlobals delta suppGraph fromPhi isPending sIdMap fromId fGnodes []
+    reachEdges gGlobals delta suppGraph fromPhi isPending sIdMap fromId fGnodes [] False
 
 reachEdges :: (Ord pstate, Hashable pstate, Show pstate)
   => GGlobals s pstate -- global variables of the algorithm
@@ -225,10 +225,10 @@ reachEdges :: (Ord pstate, Hashable pstate, Show pstate)
   -> Int -- id of current node
   -> [(Prob, GraphNode pstate, State)] -- internal(push/shift) edges
   -> [(GraphNode pstate, State, ProbEncodedSet)] -- support edges
+  -> Bool
   -> ST s SCCIDs
-reachEdges gGlobals delta suppGraph fromPhi isPending sIdMap fromId intDests suppDests =
+reachEdges gGlobals delta suppGraph fromPhi isPending sIdMap fromId intDests suppDests mayOverlap =
   let mergeEd (Internal p to1_) (Support _ suppSatSet) = SupportAndInternal p to1_ suppSatSet
-      mergeEd (Support _ suppSatSet) (Internal p to1_)  = SupportAndInternal p to1_ suppSatSet
       mergeEd _ _ = error "This merge is not allowed - please report this as a bug."
 
       computeId gn p = do
@@ -238,21 +238,24 @@ reachEdges gGlobals delta suppGraph fromPhi isPending sIdMap fromId intDests sup
             BH.insert (ggraphMap gGlobals) (gnId gn, p) actualId
             CM.insert (gGraph gGlobals) actualId
               $ GNode { gId= actualId, graphNode = gnId gn, phiNode = p, 
-                        edges = Set.empty, iValue = 0, descSccs = IntSet.empty
+                        edges = [], iValue = 0, descSccs = IntSet.empty
                       }
         return actualId
   in do
-    intEs <- StrictIntMap.fromList <$> forM intDests ( \(prob_, gn1, p1) -> do
+    intEs <- mapM (\(prob_, gn1, p1) -> do
       actualId <- computeId gn1 p1
-      return (actualId, Internal prob_ actualId))
+      return $ (actualId, Internal prob_ actualId))
+      intDests
 
-    allEs <- foldM (\acc (gn1,p1, suppSatSet) -> do
+    suppEs <- mapM (\(gn1,p1, suppSatSet) -> do
         actualId <- computeId gn1 p1
-        return (StrictIntMap.insertWith mergeEd actualId (Support actualId suppSatSet) acc)
-      ) intEs suppDests
+        return ((actualId, Support actualId suppSatSet))
+      ) suppDests 
 
-    let edges_ = StrictIntMap.elems allEs
-    CM.modify (gGraph gGlobals) (\g -> g{edges = Set.fromAscList edges_}) fromId
+    let edges_
+          | mayOverlap = StrictIntMap.elems $ StrictIntMap.fromListWith mergeEd (intEs ++ suppEs)
+          | otherwise = map snd (intEs ++ suppEs) 
+    CM.modify (gGraph gGlobals) (\g -> g{edges = edges_}) fromId
     IntSet.unions <$> forM edges_ ( \e -> do
       nextNode <- CM.lookup (gGraph gGlobals) (toG e)
       let cases
@@ -318,7 +321,7 @@ createComponent suppGraph gGlobals delta isPending g descendantSCCs = do
         else do
           -- discard all descendants that share a semiconf with the current one
           let sccEdges = init poppedEdges
-          gs <- nub <$> mapM (CM.lookup (gGraph gGlobals) . toG) sccEdges 
+          gs <- mapM (CM.lookup (gGraph gGlobals) . toG) $ nub sccEdges 
           let sccSemiconfs = IntSet.fromList $ map graphNode gs
               gsIds = map gId gs
           filtDescs <- deleteDescendants gGlobals sccSemiconfs descendantSCCs

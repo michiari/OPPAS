@@ -28,7 +28,6 @@ import qualified Pomc.CustoMap as CM
 
 import qualified Data.Strict.IntMap as StrictIntMap
 import qualified Data.Strict.Map as StrictMap
-import qualified Data.Set as Set
 import qualified Data.IntSet as IntSet
 import Data.Vector(Vector)
 import qualified Data.Vector as V
@@ -77,7 +76,7 @@ quantitativeModelCheck delta phi phiInitials suppGraph pendVector lbPendProbs ub
     newId <-  freshPosId (idSeq gGlobals)
     BH.insert (ggraphMap gGlobals) (gnId iniGn, s) newId
     let node = GNode { gId= newId, graphNode = gnId iniGn, phiNode = s, 
-                       edges = Set.empty, iValue = 0, descSccs = IntSet.empty
+                       edges = [], iValue = 0, descSccs = IntSet.empty
                      }
     CM.insert (gGraph gGlobals) newId node
     -- always set fromPhi to False to keep track of ALL BSCCs of subgraph H, 
@@ -264,7 +263,7 @@ encodePush :: (MonadZ3 z3, MonadFail z3, MonadLogger z3, Ord pstate, Hashable ps
   -> z3 [AST]
 encodePush gwGlobals sIdGen suppStarts supports delta (lTypVarMap, uTypVarMap) 
   suppGraph gGraph isInH g gn pendProbsLB pendProbsUB sIdMap solv =
-  let edgesInH = Set.toList . Set.filter (isInH . (gGraph V.!). toG) . edges $ g
+  let edgesInH = filter (isInH . (gGraph V.!). toG) . edges $ g
       pushEnc e = do
         let toIdx = toG e
         tolVar <- liftIO $ fromJust <$> HT.lookup lTypVarMap toIdx
@@ -368,7 +367,7 @@ encodeShift :: (MonadZ3 z3, MonadLogger z3)
   -> Vector Prob
   -> z3 [AST]
 encodeShift (lTypVarMap, uTypVarMap) gGraph isInH g pendProbsLB pendProbsUB =
-  let edgesInH = Set.toList . Set.filter (isInH . (gGraph V.!). toG) . edges $ g
+  let edgesInH = filter (isInH . (gGraph V.!). toG) . edges $ g
       shiftEnc (Internal prob_ toIdx) = do
         tolVar <- liftIO $ fromJust <$> HT.lookup lTypVarMap toIdx
         touVar <- liftIO $ fromJust <$> HT.lookup uTypVarMap toIdx

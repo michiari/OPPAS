@@ -23,7 +23,6 @@ import qualified Pomc.CustoMap as CM
 import qualified Pomc.Prob.GReach as GR
 import Pomc.Prob.ProbEncoding(ProbEncodedSet)
 import  Data.Strict.IntMap(IntMap)
-import Data.Set(Set)
 import Data.IntSet(IntSet)
 import Data.STRef (STRef, newSTRef)
 import Control.Monad.ST(ST)
@@ -38,7 +37,7 @@ data GNode = GNode
   { gId        :: Int
   , graphNode  :: Int
   , phiNode    :: State
-  , edges      :: Set HEdge
+  , edges      :: [HEdge]
   -- -- needed for the SCC algorithm
   , iValue     :: Int
   , descSccs   :: IntSet
