@@ -97,7 +97,7 @@ dfs globals solveSingle solveSCC lVars varKey =
             dfs globals solveSingle solveSCC lVars nextVarKey
         | (nextIVal < 0)  = return ()
         | (nextIVal > 0)  = liftIO $ do
-          -- push to keep track of self cycles in createComponent
+          -- -- push anyway to identify self-cycles in createComponent
           IOGS.push (sStack globals) nextVarKey
           merge globals nextVarKey
 
