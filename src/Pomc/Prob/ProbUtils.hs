@@ -9,6 +9,7 @@
 -}
 
 module Pomc.Prob.ProbUtils ( Prob
+                           , Epsilon
                            , HashTable
                            , Distr(..)
                            , RichDistr
@@ -31,7 +32,6 @@ module Pomc.Prob.ProbUtils ( Prob
                            , exactComputation
                            , useZ3
                            , useNewton
-                           , isNewton
                            , epsilon
                            , defaultEps
                            , defaultNewtonEps
@@ -70,6 +70,7 @@ import Z3.Monad hiding (Solver)
 import Data.Vector (Vector)
 
 type Prob = Rational
+type Epsilon = Double
 newtype Distr a = Distr [(a, Prob)] deriving (Generic, Show, NFData)
 -- a distribution over elements of type a
 -- with some additional labels of type b
@@ -159,7 +160,7 @@ data Update = GS | Newton
   deriving (Eq, Show)
 
 -- SMTWithHints: compute a lower approximation of the solution and use it as a hint for the SMT solver
-data Solver = SMTWithHints Update Double | ExactSMTWithHints Update Double | OVI Update Double
+data Solver = SMTWithHints Update Epsilon | ExactSMTWithHints Update Epsilon | OVI Update Epsilon
   deriving (Eq, Show)
 
 exactComputation :: Solver -> Bool 
@@ -177,22 +178,18 @@ useNewton (ExactSMTWithHints Newton _) = True
 useNewton (OVI Newton _) = True 
 useNewton _ = False 
 
-isNewton :: Update -> Bool 
-isNewton Newton = True 
-isNewton _ = False
-
-epsilon :: Solver -> Double
+epsilon :: Solver -> Epsilon
 epsilon (SMTWithHints _ e) = e 
 epsilon (ExactSMTWithHints _ e) = e
 epsilon (OVI _ e) = e 
 
-defaultEps :: Double
+defaultEps :: Epsilon
 defaultEps = 0x1p-26 -- ~ 1e-8
 
 defaultREps :: Prob
 defaultREps = 1e-8
 
-defaultNewtonEps :: Double
+defaultNewtonEps :: Epsilon
 defaultNewtonEps = 0x1p-13 -- ~ 1e-4
 
 defaultMaxIters :: Int
